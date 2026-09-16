@@ -2,10 +2,14 @@ local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/Minho_Hub_Obsidian_UI.lua"
 ))()
 
-local SaveManager = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/SaveManager.lua"
-))()
-SaveManager:SetLibrary(Library)
+local SaveManagerURL = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua"
+local RawCode = game:HttpGet(SaveManagerURL)
+local SaveManagerFunc = loadstring(RawCode)
+
+local SaveManager = nil
+if SaveManagerFunc then
+    SaveManager = SaveManagerFunc()
+end
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1609,9 +1613,13 @@ SettingsBox:AddCheckbox("ShowKeybindsWindow", {
     end
 })
 
-SaveManager:BuildConfigSection(Settings, "folder-cog")
-
-SaveManager:LoadAutoloadConfig()
+if SaveManager then
+    SaveManager:SetLibrary(Library)
+    SaveManager:BuildConfigSection(Settings, "folder-cog")
+    SaveManager:LoadAutoloadConfig()
+else
+    warn("SaveManager 로드 실패. Configuration 섹션을 건너뜁니다.")
+end
 
 LocalPlayer.AncestryChanged:Connect(function()
     if not LocalPlayer:IsDescendantOf(game) then
