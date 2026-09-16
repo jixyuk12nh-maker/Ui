@@ -2,23 +2,10 @@ local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/Minho_Hub_Obsidian_UI.lua"
 ))()
 
-local SaveManagerURL = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua.txt"
-local RawCode = game:HttpGet(SaveManagerURL)
-
-print("=== SaveManager 디버그 ===")
-print("코드 길이:", #RawCode)
-print("앞 100자:", RawCode:sub(1, 100))
-print("뒤 100자:", RawCode:sub(-100))
-
-local SaveManagerFunc = loadstring(RawCode)
-print("loadstring 결과:", SaveManagerFunc)
-
-local SaveManager = nil
-if SaveManagerFunc then
-    SaveManager = SaveManagerFunc()
-    print("SaveManager 실행 결과:", SaveManager)
-end
-print("=== 디버그 끝 ===")
+local SaveManager = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua.txt"
+))()
+SaveManager:SetLibrary(Library)
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1622,13 +1609,9 @@ SettingsBox:AddCheckbox("ShowKeybindsWindow", {
     end
 })
 
-if SaveManager then
-    SaveManager:SetLibrary(Library)
-    SaveManager:BuildConfigSection(Settings, "folder-cog")
-    SaveManager:LoadAutoloadConfig()
-else
-    warn("SaveManager 로드 실패. Configuration 섹션을 건너뜁니다.")
-end
+SaveManager:BuildConfigSection(Settings, "folder-cog")
+
+SaveManager:LoadAutoloadConfig()
 
 LocalPlayer.AncestryChanged:Connect(function()
     if not LocalPlayer:IsDescendantOf(game) then
