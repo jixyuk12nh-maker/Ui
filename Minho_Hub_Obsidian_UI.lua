@@ -14709,6 +14709,8 @@ function Library:Unload()
     Library.KeybindContainer = nil
 end
 
-getgenv().Library = Library
+if not getgenv().Library then
+    getgenv().Library = Library
+end
 
 return Library
