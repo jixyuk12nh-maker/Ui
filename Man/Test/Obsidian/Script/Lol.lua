@@ -2,6 +2,11 @@ local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/Minho_Hub_Obsidian_UI.lua"
 ))()
 
+local SaveManager = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua.txt"
+))()
+SaveManager:SetLibrary(Library)
+
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ReplicatedFirst   = game:GetService("ReplicatedFirst")
@@ -460,7 +465,6 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- ===== Underground System (Rage Box) =====
 local undergroundState = getgenv().__MinhoUndergroundState or {
     Active = false,
     Conn = nil,
@@ -573,7 +577,6 @@ LocalPlayer.CharacterAdded:Connect(function()
         enableUndergroundNoclip()
     end
 end)
--- ===== End Underground System =====
 
 local fireRateOn = false
 local meleeOn    = false
@@ -1234,9 +1237,6 @@ local function uninstallKillSoundSystem()
     cleanupKillSoundSystem()
 end
 
--- ===== UI 구성 =====
-
--- ★★★ Rage (UE Rage + Underground) ★★★
 local Rage = Main:AddGroupbox({ Name = "Rage", Side = 1 })
 
 local UERage_Toggle = Rage:AddToggle("UEAssistedRage", {
@@ -1269,7 +1269,6 @@ Underground_Toggle:AddKeyPicker("UndergroundKey", {
     SyncToggleState = true,
 })
 
--- ★★★ Speed Control ★★★
 local SpeedControl = Main:AddGroupbox({ Name = "Speed Control", Side = 1 })
 
 SpeedControl:AddCheckbox("FireRateEnabled", {
@@ -1296,7 +1295,6 @@ SpeedControl:AddCheckbox("FullAuto", {
     Callback = function(Value) weaponState.FullAuto = Value updateWeaponState() end
 })
 
--- ★★★ Skybox ★★★
 local Skybox = World:AddGroupbox({ Name = "Skybox", Side = 1 })
 Skybox:AddCheckbox("SkyboxEnabled", {
     Text = "Enabled", Default = false,
@@ -1317,7 +1315,6 @@ TexturePackBox:AddDropdown("TexturePack", {
     Callback = function(Value) print("Texture Pack:", Value) end
 })
 
--- ★★★ Sounds ★★★
 local SoundsBox = Visuals:AddGroupbox({ Name = "Sounds", Side = 1 })
 
 SoundsBox:AddCheckbox("HitSoundEnabled", {
@@ -1371,7 +1368,6 @@ SoundsBox:AddSlider("KillSoundPitch", {
     Callback = function(Value) soundState.KillPitch = Value end
 })
 
--- ★★★ Movement ★★★
 local MovementBox = Character:AddGroupbox({ Name = "Movement", Side = 1 })
 
 MovementBox:AddCheckbox("VelocityEnabled", {
@@ -1476,7 +1472,6 @@ MovementBox:AddCheckbox("InfiniteDoubleJump", {
     end
 })
 
--- ★★★ Fly & Noclip ★★★
 local FlyNoclipBox = Character:AddGroupbox({ Name = "Fly & Noclip", Side = 1 })
 
 local Noclip_Toggle = FlyNoclipBox:AddToggle("Noclip", {
@@ -1562,7 +1557,6 @@ FlyNoclipBox:AddCheckbox("ThirdPerson", {
     end
 })
 
--- ★★★ Animation Player ★★★
 local AnimationBox = Character:AddGroupbox({ Name = "Animation Player", Side = 2 })
 
 AnimationBox:AddCheckbox("AnimationEnabled", {
@@ -1603,7 +1597,6 @@ AnimationBox:AddSlider("AnimationSpeed", {
     end
 })
 
--- ★★★ Settings - Keybinds ★★★
 local SettingsBox = Settings:AddGroupbox({ Name = "Keybinds", Side = 1 })
 
 SettingsBox:AddCheckbox("ShowKeybindsWindow", {
@@ -1616,6 +1609,10 @@ SettingsBox:AddCheckbox("ShowKeybindsWindow", {
     end
 })
 
+SaveManager:BuildConfigSection(Settings, "folder-cog")
+
+SaveManager:LoadAutoloadConfig()
+
 LocalPlayer.AncestryChanged:Connect(function()
     if not LocalPlayer:IsDescendantOf(game) then
         pcall(function() stopNoclip() end)
@@ -1625,7 +1622,6 @@ LocalPlayer.AncestryChanged:Connect(function()
         pcall(function() uninstallKillSoundSystem() end)
         pcall(function() uninstallHitSound() end)
         pcall(function() stopUnderground() end)
-    end
-end)
+    endend)
 
 return true
