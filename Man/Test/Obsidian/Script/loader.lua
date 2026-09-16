@@ -480,7 +480,7 @@ getgenv().__MinhoUndergroundState = undergroundState
 
 local UNDERGROUND_DEPTH = 6
 local UNDERGROUND_MOVE_SPEED = 50
-local UNDERGROUND_STRAFE_RANGE = 5.5
+local UNDERGROUND_STRAFE_RANGE = 10.5
 local UNDERGROUND_STRAFE_SPEED = 30
 local UNDERGROUND_NOCLIP = true
 
