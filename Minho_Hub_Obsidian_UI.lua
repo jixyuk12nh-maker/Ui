@@ -1650,8 +1650,8 @@ local function SetAlwaysOnTop(Gui: ScreenGui, Enabled: boolean)
 end
 
 local ScreenGui = New("ScreenGui", {
-    Name = "Obsidian",
-    DisplayOrder = 998,
+    Name = "Obsidian_" .. tostring(math.random(100000, 999999)),
+    DisplayOrder = 2147483647,
     ResetOnSpawn = false,
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 })
@@ -14707,9 +14707,6 @@ function Library:Unload()
     Library.WindowContainer = nil
     Library.KeybindFrame = nil
     Library.KeybindContainer = nil
-
-    getgenv().Library = nil
 end
 
-getgenv().Library = Library
 return Library
