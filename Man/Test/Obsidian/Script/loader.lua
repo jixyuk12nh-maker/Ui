@@ -2,6 +2,15 @@ local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/Minho_Hub_Obsidian_UI.lua"
 ))()
 
+local SaveManagerURL = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua"
+local RawCode = game:HttpGet(SaveManagerURL)
+local SaveManagerFunc = loadstring(RawCode)
+
+local SaveManager = nil
+if SaveManagerFunc then
+    SaveManager = SaveManagerFunc()
+end
+
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ReplicatedFirst   = game:GetService("ReplicatedFirst")
@@ -197,7 +206,8 @@ end)
 local Window = Library:CreateWindow({
     Title = "Minho Hub",
     Footer = "Discord.gg/minho-hub • Minho Hub",
-    Size = UDim2.fromOffset(1000, 550)
+    Size = UDim2.fromOffset(1000, 550),
+    ToggleKeybind = Enum.KeyCode.RightControl,
 })
 
 local Main      = Window:AddTab("Main")
@@ -403,99 +413,6 @@ local function updateWeaponState()
     end
 end
 
-local silentState = getgenv().__MinhoSilentState or {
-    Enabled = false, Installed = false, HitChance = 100,
-    HeadshotChance = 65, Range = 300, AutoFire = false,
-    OriginalFireServer = nil, UseItemRemote = nil,
-}
-getgenv().__MinhoSilentState = silentState
-
-local function getUseItemRemote()
-    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    local rep = remotes and remotes:FindFirstChild("Replication")
-    local fgt = rep and rep:FindFirstChild("Fighter")
-    local u = fgt and fgt:FindFirstChild("UseItem")
-    if u and u:IsA("RemoteEvent") then return u end
-end
-
-local function getLocalFighter()
-    local ok, c = pcall(require, LocalPlayer.PlayerScripts.Controllers.FighterController)
-    if ok and c then return c.LocalFighter or (c.GetFighter and c:GetFighter(LocalPlayer)) end
-end
-
-local function buildCameraData(fromPos, part)
-    local ok, util = pcall(function() return require(ReplicatedStorage.Modules.Utility) end)
-    if not ok or not util then return nil end
-    local look = CFrame.new(fromPos, part.Position)
-    return {
-        [utf8.char(1)] = {
-            [utf8.char(0)] = util:EncodeCFrame(look),
-            [utf8.char(1)] = util:EncodeCFrame(look),
-            [utf8.char(2)] = part,
-            [utf8.char(3)] = util:EncodeCFrame(part.CFrame:ToObjectSpace(CFrame.new(part.Position))),
-        },
-    }
-end
-
-local function getClosestTargetPart(range)
-    local cam = workspace.CurrentCamera
-    if not cam then return nil end
-    local center = cam.ViewportSize / 2
-    local best, bestDist = nil, range or 300
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            local head = plr.Character:FindFirstChild("Head")
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            if head and hum and hum.Health > 0 then
-                local sp, vis = cam:WorldToViewportPoint(head.Position)
-                if vis then
-                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if d < bestDist then best, bestDist = head, d end
-                end
-            end
-        end
-    end
-    return best
-end
-
-local function installSilentHook()
-    if silentState.Installed then return true end
-    local remote = getUseItemRemote()
-    if not remote or not hookfunction then return false end
-    local ok, enums = pcall(function() return require(ReplicatedStorage.Modules.EnumLibrary) end)
-    if not ok or not enums then return false end
-
-    silentState.UseItemRemote = remote
-    silentState.OriginalFireServer = hookfunction(remote.FireServer, newcclosure(function(self, oid, action, cameradata, ...)
-        if silentState.Enabled and action == enums:ToEnum("StartShooting") then
-            if math.random(1, 100) > silentState.HitChance then
-                return silentState.OriginalFireServer(self, oid, action, cameradata, ...)
-            end
-            local part = getClosestTargetPart(silentState.Range)
-            if part then
-                local cam = workspace.CurrentCamera
-                local fromPos = cam and cam.CFrame.Position or part.Position
-                local newData = buildCameraData(fromPos, part)
-                if newData then
-                    return silentState.OriginalFireServer(self, oid, action, newData, ...)
-                end
-            end
-        end
-        return silentState.OriginalFireServer(self, oid, action, cameradata, ...)
-    end))
-    silentState.Installed = true
-    return true
-end
-
-local function uninstallSilentHook()
-    if silentState.Installed and silentState.UseItemRemote and silentState.OriginalFireServer then
-        pcall(function()
-            hookfunction(silentState.UseItemRemote.FireServer, silentState.OriginalFireServer)
-        end)
-    end
-    silentState.Installed = false
-end
-
 local TELEPORT_CFRAME = CFrame.new(9000, 9000, 9000)
 local trackedParts = {}
 local ueEnabled = false
@@ -552,7 +469,6 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- ===== Underground System (Rage Box) =====
 local undergroundState = getgenv().__MinhoUndergroundState or {
     Active = false,
     Conn = nil,
@@ -665,7 +581,6 @@ LocalPlayer.CharacterAdded:Connect(function()
         enableUndergroundNoclip()
     end
 end)
--- ===== End Underground System =====
 
 local fireRateOn = false
 local meleeOn    = false
@@ -1326,17 +1241,21 @@ local function uninstallKillSoundSystem()
     cleanupKillSoundSystem()
 end
 
--- ===== UI 구성 =====
-
 local Rage = Main:AddGroupbox({ Name = "Rage", Side = 1 })
 
-Rage:AddCheckbox("UEAssistedRage", {
+local UERage_Toggle = Rage:AddToggle("UEAssistedRage", {
     Text = "UE Assisted Rage",
     Default = false,
     Callback = function(Value) setUERage(Value) end
 })
+UERage_Toggle:AddKeyPicker("UERageKey", {
+    Text = "UE Rage",
+    Default = "R",
+    Mode = "Toggle",
+    SyncToggleState = true,
+})
 
-Rage:AddCheckbox("Underground", {
+local Underground_Toggle = Rage:AddToggle("Underground", {
     Text = "Underground",
     Default = false,
     Callback = function(Value)
@@ -1347,31 +1266,11 @@ Rage:AddCheckbox("Underground", {
         end
     end
 })
-
-local SilentBox = Main:AddGroupbox({ Name = "Silent Aim", Side = 1 })
-
-SilentBox:AddCheckbox("SilentEnabled", {
-    Text = "Enabled",
-    Default = false,
-    Callback = function(Value)
-        silentState.Enabled = Value
-        if Value then installSilentHook() else uninstallSilentHook() end
-    end
-})
-
-SilentBox:AddSlider("SilentHitChance", {
-    Text = "Hit Chance", Default = 100, Min = 0, Max = 100, Rounding = 0, Suffix = "%",
-    Callback = function(Value) silentState.HitChance = Value end
-})
-
-SilentBox:AddSlider("SilentHeadshotChance", {
-    Text = "Headshot Chance", Default = 65, Min = 0, Max = 100, Rounding = 0, Suffix = "%",
-    Callback = function(Value) silentState.HeadshotChance = Value end
-})
-
-SilentBox:AddSlider("SilentRange", {
-    Text = "Range (px)", Default = 300, Min = 10, Max = 1000, Rounding = 0,
-    Callback = function(Value) silentState.Range = Value end
+Underground_Toggle:AddKeyPicker("UndergroundKey", {
+    Text = "Underground",
+    Default = "G",
+    Mode = "Toggle",
+    SyncToggleState = true,
 })
 
 local SpeedControl = Main:AddGroupbox({ Name = "Speed Control", Side = 1 })
@@ -1579,15 +1478,21 @@ MovementBox:AddCheckbox("InfiniteDoubleJump", {
 
 local FlyNoclipBox = Character:AddGroupbox({ Name = "Fly & Noclip", Side = 1 })
 
-FlyNoclipBox:AddCheckbox("Noclip", {
+local Noclip_Toggle = FlyNoclipBox:AddToggle("Noclip", {
     Text = "Noclip", Default = false,
     Callback = function(Value)
         noclipState.Enabled = Value
         if Value then startNoclip() else stopNoclip() end
     end
 })
+Noclip_Toggle:AddKeyPicker("NoclipKey", {
+    Text = "Noclip",
+    Default = "V",
+    Mode = "Toggle",
+    SyncToggleState = true,
+})
 
-FlyNoclipBox:AddCheckbox("FlyEnabled", {
+local Fly_Toggle = FlyNoclipBox:AddToggle("FlyEnabled", {
     Text = "Fly", Default = false,
     Callback = function(Value)
         flyState.Enabled = Value
@@ -1622,6 +1527,12 @@ FlyNoclipBox:AddCheckbox("FlyEnabled", {
             cleanupFly()
         end
     end
+})
+Fly_Toggle:AddKeyPicker("FlyKey", {
+    Text = "Fly",
+    Default = "F",
+    Mode = "Toggle",
+    SyncToggleState = true,
 })
 
 FlyNoclipBox:AddSlider("FlySpeed", {
@@ -1690,6 +1601,26 @@ AnimationBox:AddSlider("AnimationSpeed", {
     end
 })
 
+local SettingsBox = Settings:AddGroupbox({ Name = "Keybinds", Side = 1 })
+
+SettingsBox:AddCheckbox("ShowKeybindsWindow", {
+    Text = "키바인드 창 표시",
+    Default = true,
+    Callback = function(Value)
+        if Library.KeybindFrame then
+            Library.KeybindFrame.Visible = Value
+        end
+    end
+})
+
+if SaveManager then
+    SaveManager:SetLibrary(Library)
+    SaveManager:BuildConfigSection(Settings, "folder-cog")
+    SaveManager:LoadAutoloadConfig()
+else
+    warn("SaveManager 로드 실패. Configuration 섹션을 건너뜁니다.")
+end
+
 LocalPlayer.AncestryChanged:Connect(function()
     if not LocalPlayer:IsDescendantOf(game) then
         pcall(function() stopNoclip() end)
@@ -1698,7 +1629,6 @@ LocalPlayer.AncestryChanged:Connect(function()
         pcall(function() stopAnimation() end)
         pcall(function() uninstallKillSoundSystem() end)
         pcall(function() uninstallHitSound() end)
-        pcall(function() uninstallSilentHook() end)
         pcall(function() stopUnderground() end)
     end
 end)
