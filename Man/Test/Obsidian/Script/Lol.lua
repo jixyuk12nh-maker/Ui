@@ -1289,43 +1289,6 @@ local function uninstallKillSoundSystem()
     cleanupKillSoundSystem()
 end
 
--- ==================== 설정 UI ====================
-
--- Settings 탭 전용 Menu 박스
-local MenuBox = Settings:AddGroupbox({ Name = "Menu", Side = 2 })
-
-local MenuBindToggle = MenuBox:AddToggle("MenuBindToggle", {
-    Text = "Menu Bind",
-    Default = false,
-    Callback = function(Value) end
-})
-MenuBindToggle:AddKeyPicker("MenuBindKey", {
-    Text = "Menu Bind",
-    Default = "RightControl",
-    Mode = "Toggle",
-    SyncToggleState = false,
-})
-
-MenuBox:AddToggle("SilentExecute", {
-    Text = "Silent Execute",
-    Default = false,
-    Callback = function(Value) end
-})
-
-MenuBox:AddToggle("AutoExecute", {
-    Text = "Auto Execute",
-    Default = false,
-    Callback = function(Value) end
-})
-
-MenuBox:AddButton({
-    Text = "Unload",
-    Func = function()
-        Library:Unload()
-    end
-})
-
--- Rage 박스
 local Rage = Main:AddGroupbox({ Name = "Rage", Side = 1 })
 
 local UERage_Toggle = Rage:AddToggle("UEAssistedRage", {
@@ -1334,7 +1297,7 @@ local UERage_Toggle = Rage:AddToggle("UEAssistedRage", {
     Callback = function(Value) setUERage(Value) end
 })
 UERage_Toggle:AddKeyPicker("UERageKey", {
-    Text = "UE Assisted Rage",
+    Text = "UE Rage",
     Default = "R",
     Mode = "Toggle",
     SyncToggleState = true,
@@ -1358,10 +1321,10 @@ Underground_Toggle:AddKeyPicker("UndergroundKey", {
     SyncToggleState = true,
 })
 
--- Speed Control 박스
 local SpeedControl = Main:AddGroupbox({ Name = "Speed Control", Side = 1 })
 
-SpeedControl:AddToggle("Recoil", {
+-- Recoil = 연사 (Full Auto)
+SpeedControl:AddCheckbox("Recoil", {
     Text = "Recoil",
     Default = false,
     Callback = function(Value)
@@ -1370,7 +1333,7 @@ SpeedControl:AddToggle("Recoil", {
     end
 })
 
-SpeedControl:AddToggle("NoSpread", {
+SpeedControl:AddCheckbox("NoSpread", {
     Text = "No Spread",
     Default = false,
     Callback = function(Value)
@@ -1379,8 +1342,8 @@ SpeedControl:AddToggle("NoSpread", {
     end
 })
 
-SpeedControl:AddToggle("FireCooldownEnabled", {
-    Text = "Fire Cooldown",
+SpeedControl:AddCheckbox("FireCooldownEnabled", {
+    Text = "Fire Cooldown (Guns)",
     Default = false,
     Callback = function(Value)
         fireOn = Value
@@ -1407,8 +1370,8 @@ SpeedControl:AddSlider("FireCooldownValue", {
     end
 })
 
-SpeedControl:AddToggle("MeleeCooldownEnabled", {
-    Text = "Melee Cooldown",
+SpeedControl:AddCheckbox("MeleeCooldownEnabled", {
+    Text = "Melee Cooldown (Melee)",
     Default = false,
     Callback = function(Value)
         meleeOn = Value
@@ -1435,9 +1398,8 @@ SpeedControl:AddSlider("MeleeCooldownValue", {
     end
 })
 
--- World 탭
 local Skybox = World:AddGroupbox({ Name = "Skybox", Side = 1 })
-Skybox:AddToggle("SkyboxEnabled", {
+Skybox:AddCheckbox("SkyboxEnabled", {
     Text = "Enabled", Default = false,
     Callback = function(Value) print("Skybox Enabled:", Value) end
 })
@@ -1456,10 +1418,9 @@ TexturePackBox:AddDropdown("TexturePack", {
     Callback = function(Value) print("Texture Pack:", Value) end
 })
 
--- Visuals 탭
 local SoundsBox = Visuals:AddGroupbox({ Name = "Sounds", Side = 1 })
 
-SoundsBox:AddToggle("HitSoundEnabled", {
+SoundsBox:AddCheckbox("HitSoundEnabled", {
     Text = "Hit Sound", Default = false,
     Callback = function(Value)
         soundState.HitEnabled = Value
@@ -1485,7 +1446,7 @@ SoundsBox:AddSlider("HitSoundPitch", {
     Callback = function(Value) soundState.HitPitch = Value end
 })
 
-SoundsBox:AddToggle("KillSoundEnabled", {
+SoundsBox:AddCheckbox("KillSoundEnabled", {
     Text = "Kill Sound", Default = false,
     Callback = function(Value)
         soundState.KillEnabled = Value
@@ -1510,10 +1471,9 @@ SoundsBox:AddSlider("KillSoundPitch", {
     Callback = function(Value) soundState.KillPitch = Value end
 })
 
--- Character 탭
 local MovementBox = Character:AddGroupbox({ Name = "Movement", Side = 1 })
 
-MovementBox:AddToggle("VelocityEnabled", {
+MovementBox:AddCheckbox("VelocityEnabled", {
     Text = "Velocity", Default = false,
     Callback = function(Value)
         movementState.VelocityEnabled = Value
@@ -1535,7 +1495,7 @@ MovementBox:AddSlider("VelocitySpeed", {
     Callback = function(Value) movementState.VelocitySpeed = Value end
 })
 
-MovementBox:AddToggle("SlideBoostEnabled", {
+MovementBox:AddCheckbox("SlideBoostEnabled", {
     Text = "Slide Boost", Default = false,
     Callback = function(Value)
         movementState.SlideBoostEnabled = Value
@@ -1561,7 +1521,7 @@ MovementBox:AddSlider("SlideBoostValue", {
     Callback = function(Value) movementState.SlideBoostValue = Value restoreSlideBoost() end
 })
 
-MovementBox:AddToggle("DoubleJumpEnabled", {
+MovementBox:AddCheckbox("DoubleJumpEnabled", {
     Text = "Double Jump Height", Default = false,
     Callback = function(Value)
         movementState.DoubleJumpEnabled = Value
@@ -1574,7 +1534,7 @@ MovementBox:AddSlider("DoubleJumpValue", {
     Callback = function(Value) movementState.DoubleJumpValue = Value end
 })
 
-MovementBox:AddToggle("MaulSlamEnabled", {
+MovementBox:AddCheckbox("MaulSlamEnabled", {
     Text = "Maul Slam Multiplier", Default = false,
     Callback = function(Value)
         movementState.MaulSlamEnabled = Value
@@ -1597,7 +1557,7 @@ MovementBox:AddSlider("MaulSlamValue", {
     Callback = function(Value) movementState.MaulSlamValue = Value restoreMovementItemInfo() end
 })
 
-MovementBox:AddToggle("InfiniteDoubleJump", {
+MovementBox:AddCheckbox("InfiniteDoubleJump", {
     Text = "Infinite Double Jump", Default = false,
     Callback = function(Value)
         movementState.InfiniteDoubleJump = Value
@@ -1679,7 +1639,7 @@ FlyNoclipBox:AddSlider("FlySpeed", {
     Callback = function(Value) flyState.Speed = Value end
 })
 
-FlyNoclipBox:AddToggle("ThirdPerson", {
+FlyNoclipBox:AddCheckbox("ThirdPerson", {
     Text = "Third Person", Default = false,
     Callback = function(Value)
         thirdPersonState.Enabled = Value
@@ -1702,7 +1662,7 @@ FlyNoclipBox:AddToggle("ThirdPerson", {
 
 local AnimationBox = Character:AddGroupbox({ Name = "Animation Player", Side = 2 })
 
-AnimationBox:AddToggle("AnimationEnabled", {
+AnimationBox:AddCheckbox("AnimationEnabled", {
     Text = "Enabled", Default = false,
     Callback = function(Value)
         animState.Enabled = Value
@@ -1736,6 +1696,18 @@ AnimationBox:AddSlider("AnimationSpeed", {
         animState.Speed = Value
         if animState.CurrentTrack then
             pcall(function() animState.CurrentTrack:AdjustSpeed(Value) end)
+        end
+    end
+})
+
+local SettingsBox = Settings:AddGroupbox({ Name = "Keybinds", Side = 1 })
+
+SettingsBox:AddCheckbox("ShowKeybindsWindow", {
+    Text = "키바인드 창 표시",
+    Default = true,
+    Callback = function(Value)
+        if Library.KeybindFrame then
+            Library.KeybindFrame.Visible = Value
         end
     end
 })
