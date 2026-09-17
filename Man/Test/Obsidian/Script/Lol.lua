@@ -242,6 +242,13 @@ local MELEE_WHITELIST = {
     ["Fists"]=true,["Trowel"]=true,["Riot Shield"]=true,
 }
 
+local function itemField(item, key)
+    if item == nil then return nil end
+    local ok, value = pcall(function() return item[key] end)
+    if ok then return value end
+    return nil
+end
+
 local function backupOriginals(items)
     for name, data in pairs(items) do
         if typeof(data) == "table" and not originalData[name] then
@@ -272,22 +279,12 @@ local function getRivalsItems()
     return nil
 end
 
-local function itemField(item, key)
-    if item == nil then return nil end
-    local ok, value = pcall(function() return item[key] end)
-    if ok then return value end
-    return nil
-end
-
 local InfoModifier = {
     changes = {},
     originals = {},
     FIELD_ALIASES = {
         Recoil = { "ShootRecoil" },
         NoSpread = { "ShootSpread", "ShootAccuracy", "AimSpreadMultiplier" },
-        FireCooldown = { "ShootCooldown", "ShootBurstCooldown" },
-        MeleeCooldown = { "AttackCooldown", "SwingCooldown", "MeleeCooldown",
-                          "Cooldown", "RecoveryTime", "ResetTime" },
     },
 }
 
@@ -297,28 +294,22 @@ local function rememberField(tbl, field)
     if entry[field] == nil then entry[field] = tbl[field] end
 end
 
-local function applyToBlock(block, isMelee)
+local function applyBlock(block, key)
     if typeof(block) ~= "table" then return end
-    for key, change in pairs(InfoModifier.changes) do
-        local allowed = (key == "MeleeCooldown" and isMelee)
-            or (key ~= "MeleeCooldown" and not isMelee)
-        if allowed then
-            local aliases = InfoModifier.FIELD_ALIASES[key]
-            if aliases then
-                for _, field in ipairs(aliases) do
-                    local current = rawget(block, field)
-                    if current ~= nil then
-                        rememberField(block, field)
-                        local base = InfoModifier.originals[block][field]
-                        if change == nil then
-                            block[field] = base
-                        elseif change.percentage and type(base) == "number" then
-                            block[field] = base * change.percentage
-                        elseif change.value ~= nil then
-                            block[field] = change.value
-                        end
-                    end
-                end
+    local change = InfoModifier.changes[key]
+    local aliases = InfoModifier.FIELD_ALIASES[key]
+    if aliases == nil then return end
+    for _, field in ipairs(aliases) do
+        local current = rawget(block, field)
+        if current ~= nil then
+            rememberField(block, field)
+            local base = InfoModifier.originals[block][field]
+            if change == nil then
+                block[field] = base
+            elseif change.percentage and type(base) == "number" then
+                block[field] = base * change.percentage
+            elseif change.value ~= nil then
+                block[field] = change.value
             end
         end
     end
@@ -360,7 +351,7 @@ local function collectLiveInfos()
         pcall(function()
             for _, obj in ipairs(getgc(true)) do
                 if typeof(obj) == "table" and rawget(obj, "ShootRecoil") ~= nil
-                    and rawget(obj, "ShootCooldown") ~= nil and not seen[obj] then
+                    and not seen[obj] then
                     seen[obj] = true
                     table.insert(out, obj)
                 end
@@ -374,14 +365,16 @@ local function reapply()
     local items = getRivalsItems()
     if items then
         for name, block in pairs(items) do
-            local isMelee = MELEE_WHITELIST[name] == true
-            applyToBlock(block, isMelee)
+            if not GUN_BLACKLIST[name] and not MELEE_WHITELIST[name] then
+                applyBlock(block, "Recoil")
+                applyBlock(block, "NoSpread")
+            end
         end
     end
     for _, block in ipairs(collectLiveInfos()) do
-        applyToBlock(block, false)
+        applyBlock(block, "Recoil")
+        applyBlock(block, "NoSpread")
     end
-    return true
 end
 
 local function SetChange(key, change)
@@ -417,12 +410,6 @@ local function restoreAllItemData()
         end
     end
     table.clear(InfoModifier.originals)
-end
-
-local function reapplyItemData()
-    if game.GameId ~= RIVALS_GAMEID then return end
-    restoreAllItemData()
-    reapply()
 end
 
 local weaponState = getgenv().__MinhoWeaponState or {
@@ -1383,19 +1370,12 @@ Underground_Toggle:AddKeyPicker("UndergroundKey", {
 
 local SpeedControl = Main:AddGroupbox({ Name = "Speed Control", Side = 1 })
 
-local recoilOn = false
 local recoilValue = 100
-local noSpreadOn = false
-local fireCooldownOn = false
-local fireCooldownValue = 100
-local meleeOn = false
-local meleeValue = 100
 
 SpeedControl:AddCheckbox("RecoilEnabled", {
     Text = "Recoil",
     Default = false,
     Callback = function(Value)
-        recoilOn = Value
         if Value then
             SetChange("Recoil", { percentage = recoilValue / 100 })
         else
@@ -1404,71 +1384,29 @@ SpeedControl:AddCheckbox("RecoilEnabled", {
     end
 })
 
+SpeedControl:AddSlider("RecoilValue", {
+    Text = "Recoil Amount",
+    Default = 100,
+    Min = 0,
+    Max = 100,
+    Rounding = 1,
+    Suffix = "%",
+    Callback = function(Value)
+        recoilValue = Value
+        if InfoModifier.changes.Recoil ~= nil then
+            SetChange("Recoil", { percentage = recoilValue / 100 })
+        end
+    end
+})
+
 SpeedControl:AddCheckbox("NoSpreadEnabled", {
     Text = "No Spread",
     Default = false,
     Callback = function(Value)
-        noSpreadOn = Value
         if Value then
             SetChange("NoSpread", { value = 0 })
         else
             SetChange("NoSpread", nil)
-        end
-    end
-})
-
-SpeedControl:AddCheckbox("FireCooldownEnabled", {
-    Text = "Fire Cooldown",
-    Default = false,
-    Callback = function(Value)
-        fireCooldownOn = Value
-        if Value then
-            SetChange("FireCooldown", { percentage = fireCooldownValue / 100 })
-        else
-            SetChange("FireCooldown", nil)
-        end
-    end
-})
-
-SpeedControl:AddSlider("FireCooldownValue", {
-    Text = "Fire Cooldown Multiplier",
-    Default = 100,
-    Min = 0,
-    Max = 100,
-    Rounding = 1,
-    Suffix = "%",
-    Callback = function(Value)
-        fireCooldownValue = Value
-        if fireCooldownOn then
-            SetChange("FireCooldown", { percentage = fireCooldownValue / 100 })
-        end
-    end
-})
-
-SpeedControl:AddCheckbox("MeleeCooldownEnabled", {
-    Text = "Melee Cooldown",
-    Default = false,
-    Callback = function(Value)
-        meleeOn = Value
-        if Value then
-            SetChange("MeleeCooldown", { percentage = meleeValue / 100 })
-        else
-            SetChange("MeleeCooldown", nil)
-        end
-    end
-})
-
-SpeedControl:AddSlider("MeleeCooldownValue", {
-    Text = "Melee Cooldown Multiplier",
-    Default = 100,
-    Min = 0,
-    Max = 100,
-    Rounding = 1,
-    Suffix = "%",
-    Callback = function(Value)
-        meleeValue = Value
-        if meleeOn then
-            SetChange("MeleeCooldown", { percentage = meleeValue / 100 })
         end
     end
 })
