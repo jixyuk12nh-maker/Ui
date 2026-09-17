@@ -314,95 +314,8 @@ local function restoreAllItemData()
     end
 end
 
--- Fire Cooldown 적용 (슬라이더 값 기반, 0일수록 공속 증가)
-local function applyFireCooldown()
-    local items = getRivalsItems()
-    if not items then return end
-    local mult = (weaponState.FireCooldownValue or 100) / 100
-    for name, data in pairs(items) do
-        if typeof(data) == "table" and not GUN_BLACKLIST[name] then
-            local orig = originalData[name]
-            if orig then
-                if data.ShootCooldown and orig.ShootCooldown then
-                    data.ShootCooldown = orig.ShootCooldown * mult
-                end
-                if data.ShootBurstCooldown and orig.ShootBurstCooldown then
-                    data.ShootBurstCooldown = orig.ShootBurstCooldown * mult
-                end
-            end
-        end
-    end
-end
-
-local function restoreFireCooldown()
-    local items = getRivalsItems()
-    if not items then return end
-    for name, data in pairs(items) do
-        if typeof(data) == "table" and not GUN_BLACKLIST[name] then
-            local orig = originalData[name]
-            if orig then
-                if data.ShootCooldown and orig.ShootCooldown then
-                    data.ShootCooldown = orig.ShootCooldown
-                end
-                if data.ShootBurstCooldown and orig.ShootBurstCooldown then
-                    data.ShootBurstCooldown = orig.ShootBurstCooldown
-                end
-            end
-        end
-    end
-end
-
--- Melee Cooldown 적용 (슬라이더 값 기반, 0일수록 공속 증가)
-local function applyMeleeCooldown()
-    local items = getRivalsItems()
-    if not items then return end
-    local mult = (weaponState.MeleeCooldownValue or 100) / 100
-    for name, data in pairs(items) do
-        if typeof(data) == "table" and MELEE_WHITELIST[name] then
-            local orig = originalData[name]
-            if orig then
-                if data.AttackCooldown and orig.AttackCooldown then
-                    data.AttackCooldown = orig.AttackCooldown * mult
-                end
-                if data.SwingCooldown and orig.SwingCooldown then
-                    data.SwingCooldown = orig.SwingCooldown * mult
-                end
-                if data.MeleeCooldown and orig.MeleeCooldown then
-                    data.MeleeCooldown = orig.MeleeCooldown * mult
-                end
-                if data.Cooldown and orig.Cooldown then
-                    data.Cooldown = orig.Cooldown * mult
-                end
-                if data.RecoveryTime and orig.RecoveryTime then
-                    data.RecoveryTime = orig.RecoveryTime * mult
-                end
-                if data.ResetTime and orig.ResetTime then
-                    data.ResetTime = orig.ResetTime * mult
-                end
-            end
-        end
-    end
-end
-
-local function restoreMeleeCooldown()
-    local items = getRivalsItems()
-    if not items then return end
-    for name, data in pairs(items) do
-        if typeof(data) == "table" and MELEE_WHITELIST[name] then
-            local orig = originalData[name]
-            if orig then
-                for k, v in pairs(orig) do
-                    if v ~= nil then data[k] = v end
-                end
-            end
-        end
-    end
-end
-
 local weaponState = getgenv().__MinhoWeaponState or {
     Enabled=false, Installed=false, NoSpread=false, NoRecoil=false, FullAuto=false,
-    FireCooldown=false, FireCooldownValue=100,
-    MeleeCooldown=false, MeleeCooldownValue=100,
     FullAutoItems=setmetatable({}, {__mode="k"}),
     OriginalInput=nil, OriginalGunStartShooting=nil,
     ClientItem=nil, GunItem=nil,
@@ -684,15 +597,54 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 
 local fireRateOn = false
-local meleeOn    = false
+local meleeSpeedOn = false
+
+local fireValue = 100
+local fireOn = false
+local meleeValue = 100
+local meleeOn = false
+
+local function applyFireCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    local mult = fireValue / 100
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and not GUN_BLACKLIST[name] and not MELEE_WHITELIST[name] then
+            local orig = originalData[name]
+            if orig then
+                if orig.ShootCooldown ~= nil then data.ShootCooldown = orig.ShootCooldown * mult end
+                if orig.ShootBurstCooldown ~= nil then data.ShootBurstCooldown = orig.ShootBurstCooldown * mult end
+            end
+        end
+    end
+end
+
+local function applyMeleeCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    local mult = meleeValue / 100
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and MELEE_WHITELIST[name] then
+            local orig = originalData[name]
+            if orig then
+                if orig.AttackCooldown ~= nil then data.AttackCooldown = orig.AttackCooldown * mult end
+                if orig.SwingCooldown ~= nil then data.SwingCooldown = orig.SwingCooldown * mult end
+                if orig.MeleeCooldown ~= nil then data.MeleeCooldown = orig.MeleeCooldown * mult end
+                if orig.Cooldown ~= nil then data.Cooldown = orig.Cooldown * mult end
+                if orig.RecoveryTime ~= nil then data.RecoveryTime = orig.RecoveryTime * mult end
+                if orig.ResetTime ~= nil then data.ResetTime = orig.ResetTime * mult end
+            end
+        end
+    end
+end
 
 local function reapplyItemData()
     if game.GameId ~= RIVALS_GAMEID then return end
     restoreAllItemData()
     if fireRateOn then applyFireRate() end
-    if meleeOn    then applyMeleeSpeed() end
-    if weaponState.FireCooldown  then applyFireCooldown() end
-    if weaponState.MeleeCooldown then applyMeleeCooldown() end
+    if meleeSpeedOn then applyMeleeSpeed() end
+    if fireOn then applyFireCooldown() end
+    if meleeOn then applyMeleeCooldown() end
 end
 
 local movementState = getgenv().__MinhoMovementState or {
@@ -1397,46 +1349,58 @@ SpeedControl:AddCheckbox("NoSpread", {
 })
 
 SpeedControl:AddCheckbox("FireCooldownEnabled", {
-    Text = "Fire Cooldown",
+    Text = "Fire Cooldown (Guns)",
     Default = false,
     Callback = function(Value)
-        weaponState.FireCooldown = Value
-        if Value then applyFireCooldown() else restoreFireCooldown() end
+        fireOn = Value
+        restoreAllItemData()
+        if fireOn then applyFireCooldown() end
+        if meleeOn then applyMeleeCooldown() end
     end
 })
 
 SpeedControl:AddSlider("FireCooldownValue", {
-    Text = "Fire Cooldown",
+    Text = "Fire Cooldown Multiplier",
     Default = 100,
     Min = 0,
     Max = 100,
-    Rounding = 0,
+    Rounding = 1,
     Suffix = "%",
     Callback = function(Value)
-        weaponState.FireCooldownValue = Value
-        if weaponState.FireCooldown then applyFireCooldown() end
+        fireValue = Value
+        if fireOn then
+            restoreAllItemData()
+            applyFireCooldown()
+            if meleeOn then applyMeleeCooldown() end
+        end
     end
 })
 
 SpeedControl:AddCheckbox("MeleeCooldownEnabled", {
-    Text = "Melee Cooldown",
+    Text = "Melee Cooldown (Melee)",
     Default = false,
     Callback = function(Value)
-        weaponState.MeleeCooldown = Value
-        if Value then applyMeleeCooldown() else restoreMeleeCooldown() end
+        meleeOn = Value
+        restoreAllItemData()
+        if fireOn then applyFireCooldown() end
+        if meleeOn then applyMeleeCooldown() end
     end
 })
 
 SpeedControl:AddSlider("MeleeCooldownValue", {
-    Text = "Melee Cooldown",
+    Text = "Melee Cooldown Multiplier",
     Default = 100,
     Min = 0,
     Max = 100,
-    Rounding = 0,
+    Rounding = 1,
     Suffix = "%",
     Callback = function(Value)
-        weaponState.MeleeCooldownValue = Value
-        if weaponState.MeleeCooldown then applyMeleeCooldown() end
+        meleeValue = Value
+        if meleeOn then
+            restoreAllItemData()
+            if fireOn then applyFireCooldown() end
+            applyMeleeCooldown()
+        end
     end
 })
 
