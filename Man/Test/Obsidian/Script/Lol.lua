@@ -2,6 +2,11 @@ local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/Minho_Hub_Obsidian_UI.lua"
 ))()
 
+local ThemeManager = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/ThemeManager.lua"
+))()
+ThemeManager:SetLibrary(Library)
+
 local SaveManagerURL = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua"
 local RawCode = game:HttpGet(SaveManagerURL)
 local SaveManagerFunc = loadstring(RawCode)
@@ -218,6 +223,8 @@ local Spoofer   = Window:AddTab("Spoofer")
 local Misc      = Window:AddTab("Misc")
 local Settings  = Window:AddTab("Settings")
 
+ThemeManager:ApplyToTab(Settings)
+
 local RIVALS_GAMEID = 6035872082
 local originalData = {}
 local rivalsItems = nil
@@ -279,17 +286,24 @@ local function applyFireRate()
     end
 end
 
-local function applyMeleeSpeed()
+local meleeMultiplier = 1.0
+
+local function sliderToMultiplier(v)
+    return math.clamp((10 - v) / 9, 0, 1)
+end
+
+local function applyMeleeSpeed(mult)
     local items = getRivalsItems()
     if not items then return end
+    mult = mult or meleeMultiplier
     for name, data in pairs(items) do
         if typeof(data) == "table" and MELEE_WHITELIST[name] then
-            if data.AttackCooldown  then data.AttackCooldown  = 0.001 end
-            if data.SwingCooldown   then data.SwingCooldown   = 0.001 end
-            if data.MeleeCooldown   then data.MeleeCooldown   = 0.001 end
-            if data.Cooldown        then data.Cooldown        = 0.001 end
-            if data.RecoveryTime    then data.RecoveryTime    = 0.001 end
-            if data.ResetTime       then data.ResetTime       = 0.001 end
+            if data.AttackCooldown then data.AttackCooldown = data.AttackCooldown * mult end
+            if data.SwingCooldown  then data.SwingCooldown  = data.SwingCooldown  * mult end
+            if data.MeleeCooldown  then data.MeleeCooldown  = data.MeleeCooldown  * mult end
+            if data.Cooldown       then data.Cooldown       = data.Cooldown       * mult end
+            if data.RecoveryTime   then data.RecoveryTime   = data.RecoveryTime   * mult end
+            if data.ResetTime      then data.ResetTime      = data.ResetTime      * mult end
         end
     end
 end
@@ -589,7 +603,7 @@ local function reapplyItemData()
     if game.GameId ~= RIVALS_GAMEID then return end
     restoreAllItemData()
     if fireRateOn then applyFireRate() end
-    if meleeOn    then applyMeleeSpeed() end
+    if meleeOn    then applyMeleeSpeed(meleeMultiplier) end
 end
 
 local movementState = getgenv().__MinhoMovementState or {
@@ -1281,10 +1295,26 @@ SpeedControl:AddCheckbox("FireRateEnabled", {
     Callback = function(Value) fireRateOn = Value reapplyItemData() end
 })
 
-SpeedControl:AddCheckbox("AttackSpeedEnabled", {
+local AttackSpeed_Toggle = SpeedControl:AddCheckbox("AttackSpeedEnabled", {
     Text = "Attack Speed (Melee)",
     Default = false,
     Callback = function(Value) meleeOn = Value reapplyItemData() end
+})
+
+SpeedControl:AddSlider("AttackSpeedMultiplier", {
+    Text = "Attack Speed Multiplier",
+    Default = 1,
+    Min = 1,
+    Max = 10,
+    Rounding = 1,
+    Suffix = "x",
+    Callback = function(Value)
+        meleeMultiplier = sliderToMultiplier(Value)
+        if meleeOn then
+            restoreAllItemData()
+            applyMeleeSpeed(meleeMultiplier)
+        end
+    end
 })
 
 SpeedControl:AddCheckbox("NoSpread", {
@@ -1312,192 +1342,12 @@ Skybox:AddDropdown("SkyboxType", {
 })
 
 local TexturePackBox = World:AddGroupbox({ Name = "Texture Pack", Side = 2 })
-
-local WORLD_TEXTURES = {
-    ["Hollow Blue"] = {
-        ids = {7658055825},
-        url = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/texture_pack/item_slot_3_blue_hollow.png",
-    },
-    ["Custom"] = {
-        ids = {13220167337},
-        url = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/texture_pack/c5ce6cb7-b2a6-4fc9-b59b-87a9627c8552.png",
-    },
-}
-
-local worldTextureCache = {}
-local worldTextureOriginals = {}
-local worldTextureTargets = {}
-local currentIdMap = {}
-
-local function getWorldTexture(url)
-    if worldTextureCache[url] then return worldTextureCache[url] end
-    local success, result = pcall(function()
-        if writefile and isfile and getcustomasset then
-            local hash = 0
-            for i = 1, #url do
-                hash = (hash * 31 + string.byte(url, i)) % 2^31
-            end
-            local fileName = "minho_world_" .. tostring(hash) .. ".png"
-            if not isfile(fileName) then
-                local data = game:HttpGet(url)
-                if data and #data > 80 then
-                    writefile(fileName, data)
-                end
-            end
-            if isfile(fileName) then
-                local asset = getcustomasset(fileName)
-                if asset and asset ~= "" then
-                    return asset
-                end
-            end
-        end
-        return url
-    end)
-    local asset = (success and result) or url
-    worldTextureCache[url] = asset
-    return asset
-end
-
-local function getWorldTextureProperty(obj)
-    if obj:IsA("Decal") or obj:IsA("Texture") then
-        return "Texture"
-    elseif obj:IsA("MeshPart") then
-        return "TextureID"
-    end
-    return nil
-end
-
-local function getWorldTextureId(value)
-    if type(value) ~= "string" then return nil end
-    return string.match(value, "%d+")
-end
-
-local function rememberWorldTextureTarget(obj, property, original)
-    worldTextureOriginals[obj] = original
-    worldTextureTargets[obj] = property
-end
-
-local function findWorldTextureTargets()
-    for _, obj in ipairs(game:GetDescendants()) do
-        local property = getWorldTextureProperty(obj)
-        if property then
-            local success, value = pcall(function() return obj[property] end)
-            if success and type(value) == "string" then
-                local id = getWorldTextureId(value)
-                if id and currentIdMap[id] and worldTextureOriginals[obj] == nil then
-                    rememberWorldTextureTarget(obj, property, value)
-                end
-            end
-        end
-    end
-end
-
-local function restoreWorldTextures()
-    for obj, original in pairs(worldTextureOriginals) do
-        if obj and obj.Parent then
-            local property = worldTextureTargets[obj] or getWorldTextureProperty(obj)
-            if property then
-                pcall(function()
-                    obj[property] = ""
-                    obj[property] = original
-                end)
-            end
-        end
-    end
-end
-
-local function clearWorldTextureTracking()
-    table.clear(worldTextureOriginals)
-    table.clear(worldTextureTargets)
-end
-
-local function getSelectedPack()
-    local selected = "Hollow Blue"
-    if Library and Library.Options and Library.Options.TexturePack then
-        selected = Library.Options.TexturePack.Value or "Hollow Blue"
-    end
-    if type(selected) == "table" then selected = selected[1] end
-    return WORLD_TEXTURES[tostring(selected)] or WORLD_TEXTURES["Hollow Blue"]
-end
-
-local function buildIdMap(pack)
-    currentIdMap = {}
-    if pack and pack.ids then
-        for _, id in ipairs(pack.ids) do
-            currentIdMap[tostring(id)] = true
-        end
-    end
-end
-
-local function applyWorldTexture()
-    if not TexturePackBox or not TexturePackBox.Toggle then return end
-    local pack = getSelectedPack()
-    if not pack then return end
-    local asset = getWorldTexture(pack.url)
-    buildIdMap(pack)
-    findWorldTextureTargets()
-    for obj, property in pairs(worldTextureTargets) do
-        if obj and obj.Parent then
-            pcall(function()
-                obj[property] = ""
-                obj[property] = asset
-            end)
-        end
-    end
-end
-
-local function switchWorldTexture()
-    restoreWorldTextures()
-    clearWorldTextureTracking()
-    applyWorldTexture()
-end
-
-local TextureToggle = TexturePackBox:AddCheckbox("TexturePackEnabled", {
-    Text = "Enabled",
-    Default = false,
-    Callback = function(Value)
-        if Value then
-            applyWorldTexture()
-        else
-            restoreWorldTextures()
-            clearWorldTextureTracking()
-            currentIdMap = {}
-        end
-    end
-})
-
 TexturePackBox:AddDropdown("TexturePack", {
     Text = "Texture Pack",
-    Values = { "Hollow Blue", "Custom" },
-    Default = "Hollow Blue", Multi = false,
-    Callback = function(Value)
-        if TextureToggle and TextureToggle.Value then
-            switchWorldTexture()
-        end
-    end
+    Values = { "Default", "Neon", "Cartoon", "Realistic", "Anime", "Flat" },
+    Default = "Default", Multi = false,
+    Callback = function(Value) print("Texture Pack:", Value) end
 })
-
-game.DescendantAdded:Connect(function(obj)
-    if not TextureToggle or not TextureToggle.Value then return end
-    task.defer(function()
-        local property = getWorldTextureProperty(obj)
-        if not property then return end
-        local success, value = pcall(function() return obj[property] end)
-        if not success or type(value) ~= "string" then return end
-        local id = getWorldTextureId(value)
-        if id and currentIdMap[id] then
-            if worldTextureOriginals[obj] == nil then
-                rememberWorldTextureTarget(obj, property, value)
-            end
-            local pack = getSelectedPack()
-            local asset = getWorldTexture(pack.url)
-            pcall(function()
-                obj[property] = ""
-                obj[property] = asset
-            end)
-        end
-    end)
-end)
 
 local SoundsBox = Visuals:AddGroupbox({ Name = "Sounds", Side = 1 })
 
