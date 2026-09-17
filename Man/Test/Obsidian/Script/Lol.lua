@@ -242,13 +242,6 @@ local MELEE_WHITELIST = {
     ["Fists"]=true,["Trowel"]=true,["Riot Shield"]=true,
 }
 
-local function itemField(item, key)
-    if item == nil then return nil end
-    local ok, value = pcall(function() return item[key] end)
-    if ok then return value end
-    return nil
-end
-
 local function backupOriginals(items)
     for name, data in pairs(items) do
         if typeof(data) == "table" and not originalData[name] then
@@ -279,141 +272,137 @@ local function getRivalsItems()
     return nil
 end
 
-local InfoModifier = {
-    changes = {},
-    originals = {},
-    FIELD_ALIASES = {
-        Recoil = { "ShootRecoil" },
-        NoSpread = { "ShootSpread", "ShootAccuracy", "AimSpreadMultiplier" },
-    },
-}
-
-local function rememberField(tbl, field)
-    local entry = InfoModifier.originals[tbl]
-    if not entry then entry = {} InfoModifier.originals[tbl] = entry end
-    if entry[field] == nil then entry[field] = tbl[field] end
-end
-
-local function applyBlock(block, key)
-    if typeof(block) ~= "table" then return end
-    local change = InfoModifier.changes[key]
-    local aliases = InfoModifier.FIELD_ALIASES[key]
-    if aliases == nil then return end
-    for _, field in ipairs(aliases) do
-        local current = rawget(block, field)
-        if current ~= nil then
-            rememberField(block, field)
-            local base = InfoModifier.originals[block][field]
-            if change == nil then
-                block[field] = base
-            elseif change.percentage and type(base) == "number" then
-                block[field] = base * change.percentage
-            elseif change.value ~= nil then
-                block[field] = change.value
-            end
-        end
-    end
-end
-
-local function collectLiveInfos()
-    local seen = {}
-    local out = {}
-    local ps = LocalPlayer:FindFirstChild("PlayerScripts")
-    local controllers = ps and ps:FindFirstChild("Controllers")
-    local fc = controllers and controllers:FindFirstChild("FighterController")
-    if fc then
-        local ok, mod = pcall(require, fc)
-        if ok and typeof(mod) == "table" then
-            local live = rawget(mod, "LocalFighter")
-            if typeof(live) == "table" then
-                local items = rawget(live, "Items")
-                if typeof(items) == "table" then
-                    for _, item in pairs(items) do
-                        local info = itemField(item, "Info")
-                        if typeof(info) == "table" and not seen[info] then
-                            seen[info] = true
-                            table.insert(out, info)
-                        end
-                    end
-                end
-                local equipped = rawget(live, "EquippedItem")
-                if typeof(equipped) == "table" then
-                    local info = itemField(equipped, "Info")
-                    if typeof(info) == "table" and not seen[info] then
-                        seen[info] = true
-                        table.insert(out, info)
-                    end
-                end
-            end
-        end
-    end
-    if typeof(getgc) == "function" then
-        pcall(function()
-            for _, obj in ipairs(getgc(true)) do
-                if typeof(obj) == "table" and rawget(obj, "ShootRecoil") ~= nil
-                    and not seen[obj] then
-                    seen[obj] = true
-                    table.insert(out, obj)
-                end
-            end
-        end)
-    end
-    return out
-end
-
-local function reapply()
+local function applyFireRate()
     local items = getRivalsItems()
-    if items then
-        for name, block in pairs(items) do
-            if not GUN_BLACKLIST[name] and not MELEE_WHITELIST[name] then
-                applyBlock(block, "Recoil")
-                applyBlock(block, "NoSpread")
-            end
+    if not items then return end
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and not GUN_BLACKLIST[name] then
+            if data.ShootSpread  then data.ShootSpread  = 0 end
+            if data.ShootAccuracy then data.ShootAccuracy = 0 end
+            if data.ShootRecoil  then data.ShootRecoil  = 0 end
+            if data.ShootCooldown then data.ShootCooldown = 0.001 end
+            if data.ShootBurstCooldown then data.ShootBurstCooldown = 0.001 end
         end
-    end
-    for _, block in ipairs(collectLiveInfos()) do
-        applyBlock(block, "Recoil")
-        applyBlock(block, "NoSpread")
     end
 end
 
-local function SetChange(key, change)
-    if change == nil then
-        InfoModifier.changes[key] = nil
-        local aliases = InfoModifier.FIELD_ALIASES[key]
-        if aliases then
-            for tbl, fields in pairs(InfoModifier.originals) do
-                for _, field in ipairs(aliases) do
-                    if fields[field] ~= nil then
-                        pcall(function() tbl[field] = fields[field] end)
-                        fields[field] = nil
-                    end
-                end
-            end
+local function applyMeleeSpeed()
+    local items = getRivalsItems()
+    if not items then return end
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and MELEE_WHITELIST[name] then
+            if data.AttackCooldown  then data.AttackCooldown  = 0.001 end
+            if data.SwingCooldown   then data.SwingCooldown   = 0.001 end
+            if data.MeleeCooldown   then data.MeleeCooldown   = 0.001 end
+            if data.Cooldown        then data.Cooldown        = 0.001 end
+            if data.RecoveryTime    then data.RecoveryTime    = 0.001 end
+            if data.ResetTime       then data.ResetTime       = 0.001 end
         end
-        return
     end
-    InfoModifier.changes[key] = change
-    reapply()
 end
 
 local function restoreAllItemData()
     local items = getRivalsItems()
-    if items then
-        for name, data in pairs(items) do
+    if not items then return end
+    for name, data in pairs(items) do
+        local orig = originalData[name]
+        if orig and typeof(data) == "table" then
+            for k, v in pairs(orig) do
+                if v ~= nil then data[k] = v end
+            end
+        end
+    end
+end
+
+-- Fire Cooldown 적용 (슬라이더 값 기반, 0일수록 공속 증가)
+local function applyFireCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    local mult = (weaponState.FireCooldownValue or 100) / 100
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and not GUN_BLACKLIST[name] then
             local orig = originalData[name]
-            if orig and typeof(data) == "table" then
+            if orig then
+                if data.ShootCooldown and orig.ShootCooldown then
+                    data.ShootCooldown = orig.ShootCooldown * mult
+                end
+                if data.ShootBurstCooldown and orig.ShootBurstCooldown then
+                    data.ShootBurstCooldown = orig.ShootBurstCooldown * mult
+                end
+            end
+        end
+    end
+end
+
+local function restoreFireCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and not GUN_BLACKLIST[name] then
+            local orig = originalData[name]
+            if orig then
+                if data.ShootCooldown and orig.ShootCooldown then
+                    data.ShootCooldown = orig.ShootCooldown
+                end
+                if data.ShootBurstCooldown and orig.ShootBurstCooldown then
+                    data.ShootBurstCooldown = orig.ShootBurstCooldown
+                end
+            end
+        end
+    end
+end
+
+-- Melee Cooldown 적용 (슬라이더 값 기반, 0일수록 공속 증가)
+local function applyMeleeCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    local mult = (weaponState.MeleeCooldownValue or 100) / 100
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and MELEE_WHITELIST[name] then
+            local orig = originalData[name]
+            if orig then
+                if data.AttackCooldown and orig.AttackCooldown then
+                    data.AttackCooldown = orig.AttackCooldown * mult
+                end
+                if data.SwingCooldown and orig.SwingCooldown then
+                    data.SwingCooldown = orig.SwingCooldown * mult
+                end
+                if data.MeleeCooldown and orig.MeleeCooldown then
+                    data.MeleeCooldown = orig.MeleeCooldown * mult
+                end
+                if data.Cooldown and orig.Cooldown then
+                    data.Cooldown = orig.Cooldown * mult
+                end
+                if data.RecoveryTime and orig.RecoveryTime then
+                    data.RecoveryTime = orig.RecoveryTime * mult
+                end
+                if data.ResetTime and orig.ResetTime then
+                    data.ResetTime = orig.ResetTime * mult
+                end
+            end
+        end
+    end
+end
+
+local function restoreMeleeCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and MELEE_WHITELIST[name] then
+            local orig = originalData[name]
+            if orig then
                 for k, v in pairs(orig) do
                     if v ~= nil then data[k] = v end
                 end
             end
         end
     end
-    table.clear(InfoModifier.originals)
 end
 
 local weaponState = getgenv().__MinhoWeaponState or {
-    Enabled=false, Installed=false, NoSpread=false, FullAuto=false,
+    Enabled=false, Installed=false, NoSpread=false, NoRecoil=false, FullAuto=false,
+    FireCooldown=false, FireCooldownValue=100,
+    MeleeCooldown=false, MeleeCooldownValue=100,
     FullAutoItems=setmetatable({}, {__mode="k"}),
     OriginalInput=nil, OriginalGunStartShooting=nil,
     ClientItem=nil, GunItem=nil,
@@ -491,9 +480,16 @@ local function installWeaponHooks()
     weaponState.OriginalGunStartShooting = GunItem.StartShooting
     GunItem.StartShooting = function(self, ...)
         local result = {weaponState.OriginalGunStartShooting(self, ...)}
-        if weaponState.Enabled and weaponState.NoSpread and isLocalItem(self)
-            and typeof(result[3]) == "table" then
-            result[4] = true
+        if weaponState.Enabled and isLocalItem(self) and typeof(result[3]) == "table" then
+            if weaponState.NoSpread then
+                result[4] = true
+            end
+            if weaponState.NoRecoil then
+                local info = self.Info
+                if info then
+                    pcall(function() info.ShootRecoil = 0 end)
+                end
+            end
         end
         return unpack(result)
     end
@@ -503,7 +499,7 @@ local function installWeaponHooks()
 end
 
 local function updateWeaponState()
-    local enabled = weaponState.NoSpread or weaponState.FullAuto
+    local enabled = weaponState.NoSpread or weaponState.FullAuto or weaponState.NoRecoil
     weaponState.Enabled = enabled
     if enabled then
         installWeaponHooks()
@@ -686,6 +682,18 @@ LocalPlayer.CharacterAdded:Connect(function()
         enableUndergroundNoclip()
     end
 end)
+
+local fireRateOn = false
+local meleeOn    = false
+
+local function reapplyItemData()
+    if game.GameId ~= RIVALS_GAMEID then return end
+    restoreAllItemData()
+    if fireRateOn then applyFireRate() end
+    if meleeOn    then applyMeleeSpeed() end
+    if weaponState.FireCooldown  then applyFireCooldown() end
+    if weaponState.MeleeCooldown then applyMeleeCooldown() end
+end
 
 local movementState = getgenv().__MinhoMovementState or {
     Mechanics=nil, SlideOriginals={}, ItemOriginals={},
@@ -1370,52 +1378,73 @@ Underground_Toggle:AddKeyPicker("UndergroundKey", {
 
 local SpeedControl = Main:AddGroupbox({ Name = "Speed Control", Side = 1 })
 
-local recoilValue = 100
-
-SpeedControl:AddCheckbox("RecoilEnabled", {
+SpeedControl:AddCheckbox("Recoil", {
     Text = "Recoil",
     Default = false,
     Callback = function(Value)
-        if Value then
-            SetChange("Recoil", { percentage = recoilValue / 100 })
-        else
-            SetChange("Recoil", nil)
-        end
+        weaponState.NoRecoil = Value
+        updateWeaponState()
     end
 })
 
-SpeedControl:AddSlider("RecoilValue", {
-    Text = "Recoil Amount",
-    Default = 100,
-    Min = 0,
-    Max = 100,
-    Rounding = 1,
-    Suffix = "%",
-    Callback = function(Value)
-        recoilValue = Value
-        if InfoModifier.changes.Recoil ~= nil then
-            SetChange("Recoil", { percentage = recoilValue / 100 })
-        end
-    end
-})
-
-SpeedControl:AddCheckbox("NoSpreadEnabled", {
+SpeedControl:AddCheckbox("NoSpread", {
     Text = "No Spread",
     Default = false,
     Callback = function(Value)
-        if Value then
-            SetChange("NoSpread", { value = 0 })
-        else
-            SetChange("NoSpread", nil)
-        end
+        weaponState.NoSpread = Value
+        updateWeaponState()
     end
 })
 
-RunService.Heartbeat:Connect(function()
-    if next(InfoModifier.changes) ~= nil then
-        reapply()
+SpeedControl:AddCheckbox("FireCooldownEnabled", {
+    Text = "Fire Cooldown",
+    Default = false,
+    Callback = function(Value)
+        weaponState.FireCooldown = Value
+        if Value then applyFireCooldown() else restoreFireCooldown() end
     end
-end)
+})
+
+SpeedControl:AddSlider("FireCooldownValue", {
+    Text = "Fire Cooldown",
+    Default = 100,
+    Min = 0,
+    Max = 100,
+    Rounding = 0,
+    Suffix = "%",
+    Callback = function(Value)
+        weaponState.FireCooldownValue = Value
+        if weaponState.FireCooldown then applyFireCooldown() end
+    end
+})
+
+SpeedControl:AddCheckbox("MeleeCooldownEnabled", {
+    Text = "Melee Cooldown",
+    Default = false,
+    Callback = function(Value)
+        weaponState.MeleeCooldown = Value
+        if Value then applyMeleeCooldown() else restoreMeleeCooldown() end
+    end
+})
+
+SpeedControl:AddSlider("MeleeCooldownValue", {
+    Text = "Melee Cooldown",
+    Default = 100,
+    Min = 0,
+    Max = 100,
+    Rounding = 0,
+    Suffix = "%",
+    Callback = function(Value)
+        weaponState.MeleeCooldownValue = Value
+        if weaponState.MeleeCooldown then applyMeleeCooldown() end
+    end
+})
+
+SpeedControl:AddCheckbox("FullAuto", {
+    Text = "Full Auto",
+    Default = false,
+    Callback = function(Value) weaponState.FullAuto = Value updateWeaponState() end
+})
 
 local Skybox = World:AddGroupbox({ Name = "Skybox", Side = 1 })
 Skybox:AddCheckbox("SkyboxEnabled", {
