@@ -82,8 +82,8 @@ if not getgenv().__MinhoStartupHooks then
     local okEnv, renv = pcall(getrenv)
     local realSetmetatable = okEnv and renv and renv.setmetatable
     if hookfunction and realSetmetatable then
-        local oldSM = realSetmetatable
-        pcall(hookfunction, realSetmetatable, newcclosure(function(T, MT)
+        local oldSM = realSetMetatable
+        pcall(hookfunction, realSetMetatable, newcclosure(function(T, MT)
             if MT and type(MT) == "table" and rawget(MT, "__mode") then
                 local m = rawget(MT, "__mode")
                 if m == "kv" or m == "v" or m == "k" then
@@ -1608,66 +1608,18 @@ AnimationBox:AddSlider("AnimationSpeed", {
     end
 })
 
--- ============================================================
--- [ Menu ] 그룹박스 (Settings 탭 오른쪽 위)
--- ============================================================
-local MenuBox = Settings:AddGroupbox({ Name = "Menu", Side = 2 })
+local SettingsBox = Settings:AddGroupbox({ Name = "Keybinds", Side = 1 })
 
-MenuBox:AddCheckbox("MenuBindEnabled", {
-    Text = "Menu bind",
+SettingsBox:AddCheckbox("ShowKeybindsWindow", {
+    Text = "키바인드 창 표시",
     Default = true,
     Callback = function(Value)
         if Library.KeybindFrame then
             Library.KeybindFrame.Visible = Value
         end
-    end,
-})
-
-MenuBox:AddCheckbox("AutoExecuteEnabled", {
-    Text = "Auto Execute",
-    Default = false,
-    Callback = function(Value)
-        getgenv().AutoExecute = Value
-    end,
-})
-
-MenuBox:AddCheckbox("SilentExecuteEnabled", {
-    Text = "Silent Execute",
-    Default = false,
-    Callback = function(Value)
-        getgenv().SilentExecute = Value
-    end,
-})
-
--- Unload 버튼 (라이브러리가 AddButton 미지원이면 자동 skip)
-do
-    local ok, err = pcall(function()
-        MenuBox:AddButton({
-            Text = "Unload",
-            Func = function()
-                pcall(function()
-                    if getgenv().__UndergroundStop then getgenv().__UndergroundStop() end
-                end)
-                pcall(function() stopNoclip() end)
-                pcall(function() cleanupFly() end)
-                pcall(function() stopThirdPerson() end)
-                pcall(function() stopAnimation() end)
-                pcall(function() uninstallKillSoundSystem() end)
-                pcall(function() uninstallHitSound() end)
-                pcall(function()
-                    if Library.Unload then Library:Unload() end
-                end)
-            end,
-        })
-    end)
-    if not ok then
-        warn("[Minho] Unload 버튼 생성 실패 (AddButton 미지원):", err)
     end
-end
+})
 
--- ============================================================
--- SaveManager
--- ============================================================
 if SaveManager then
     SaveManager:SetLibrary(Library)
     SaveManager:BuildConfigSection(Settings, "folder-cog")
