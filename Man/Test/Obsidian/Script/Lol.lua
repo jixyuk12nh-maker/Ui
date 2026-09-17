@@ -315,7 +315,7 @@ local function restoreAllItemData()
 end
 
 local weaponState = getgenv().__MinhoWeaponState or {
-    Enabled=false, Installed=false, NoSpread=false, NoRecoil=false, FullAuto=false,
+    Enabled=false, Installed=false, NoSpread=false, FullAuto=false,
     FullAutoItems=setmetatable({}, {__mode="k"}),
     OriginalInput=nil, OriginalGunStartShooting=nil,
     ClientItem=nil, GunItem=nil,
@@ -393,16 +393,9 @@ local function installWeaponHooks()
     weaponState.OriginalGunStartShooting = GunItem.StartShooting
     GunItem.StartShooting = function(self, ...)
         local result = {weaponState.OriginalGunStartShooting(self, ...)}
-        if weaponState.Enabled and isLocalItem(self) and typeof(result[3]) == "table" then
-            if weaponState.NoSpread then
-                result[4] = true
-            end
-            if weaponState.NoRecoil then
-                local info = self.Info
-                if info then
-                    pcall(function() info.ShootRecoil = 0 end)
-                end
-            end
+        if weaponState.Enabled and weaponState.NoSpread and isLocalItem(self)
+            and typeof(result[3]) == "table" then
+            result[4] = true
         end
         return unpack(result)
     end
@@ -412,7 +405,7 @@ local function installWeaponHooks()
 end
 
 local function updateWeaponState()
-    local enabled = weaponState.NoSpread or weaponState.FullAuto or weaponState.NoRecoil
+    local enabled = weaponState.NoSpread or weaponState.FullAuto
     weaponState.Enabled = enabled
     if enabled then
         installWeaponHooks()
@@ -1330,11 +1323,12 @@ Underground_Toggle:AddKeyPicker("UndergroundKey", {
 
 local SpeedControl = Main:AddGroupbox({ Name = "Speed Control", Side = 1 })
 
+-- Recoil = 연사 (Full Auto)
 SpeedControl:AddCheckbox("Recoil", {
     Text = "Recoil",
     Default = false,
     Callback = function(Value)
-        weaponState.NoRecoil = Value
+        weaponState.FullAuto = Value
         updateWeaponState()
     end
 })
@@ -1402,12 +1396,6 @@ SpeedControl:AddSlider("MeleeCooldownValue", {
             applyMeleeCooldown()
         end
     end
-})
-
-SpeedControl:AddCheckbox("FullAuto", {
-    Text = "Full Auto",
-    Default = false,
-    Callback = function(Value) weaponState.FullAuto = Value updateWeaponState() end
 })
 
 local Skybox = World:AddGroupbox({ Name = "Skybox", Side = 1 })
