@@ -2,6 +2,11 @@ local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/Minho_Hub_Obsidian_UI.lua"
 ))()
 
+local ThemeManager = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/Addons/ThemeManager.lua"
+))()
+ThemeManager:SetLibrary(Library)
+
 local SaveManagerURL = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua"
 local RawCode = game:HttpGet(SaveManagerURL)
 local SaveManagerFunc = loadstring(RawCode)
@@ -217,6 +222,8 @@ local Character = Window:AddTab("Character")
 local Spoofer   = Window:AddTab("Spoofer")
 local Misc      = Window:AddTab("Misc")
 local Settings  = Window:AddTab("Settings")
+
+ThemeManager:ApplyToTab(Settings)
 
 local RIVALS_GAMEID = 6035872082
 local originalData = {}
