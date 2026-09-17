@@ -82,7 +82,7 @@ if not getgenv().__MinhoStartupHooks then
     local okEnv, renv = pcall(getrenv)
     local realSetmetatable = okEnv and renv and renv.setmetatable
     if hookfunction and realSetmetatable then
-        local oldSM = realSetMetatable
+        local oldSM = realSetmetatable
         pcall(hookfunction, realSetmetatable, newcclosure(function(T, MT)
             if MT and type(MT) == "table" and rawget(MT, "__mode") then
                 local m = rawget(MT, "__mode")
@@ -224,68 +224,6 @@ local Misc      = Window:AddTab("Misc")
 local Settings  = Window:AddTab("Settings")
 
 ThemeManager:ApplyToTab(Settings)
-
--- ============================================================
--- [ Menu ] 그룹박스 - Settings 탭 우측 상단 배치
--- ============================================================
-local MenuBox = Settings:AddGroupbox({ Name = "Menu", Side = 2 })
-
--- 1) Menu bind (한국어 키바인드 on/off)
-local MenuBind_Toggle = MenuBox:AddCheckbox("MenuBindEnabled", {
-    Text = "Menu bind",
-    Default = true,
-    Callback = function(Value)
-        if Library.KeybindFrame then
-            Library.KeybindFrame.Visible = Value
-        end
-    end,
-})
-
--- 2) Auto Execute
-MenuBox:AddCheckbox("AutoExecuteEnabled", {
-    Text = "Auto Execute",
-    Default = false,
-    Callback = function(Value)
-        getgenv().AutoExecute = Value
-        print("[Minho] Auto Execute:", Value)
-    end,
-})
-
--- 3) Silent Execute
-MenuBox:AddCheckbox("SilentExecuteEnabled", {
-    Text = "Silent Execute",
-    Default = false,
-    Callback = function(Value)
-        getgenv().SilentExecute = Value
-        print("[Minho] Silent Execute:", Value)
-    end,
-})
-
--- 4) Unload (독립 버튼)
-MenuBox:AddButton({
-    Text = "Unload",
-    Func = function()
-        -- 모든 훅/연결 정리 후 스크립트 종료
-        pcall(function() if getgenv().__UndergroundStop then getgenv().__UndergroundStop() end end)
-        pcall(function()
-            if Library and Library.Unload then Library:Unload() end
-        end)
-        pcall(function()
-            if Library and Library.Window then Library.Window:Destroy() end
-        end)
-        pcall(function()
-            for _, gui in ipairs(game:GetService("CoreGui"):GetChildren()) do
-                if gui.Name:find("Minho") or gui.Name:find("Obsidian") then
-                    gui:Destroy()
-                end
-            end
-        end)
-    end,
-})
-
--- ============================================================
--- 이하 기존 코드 (기능 로직은 그대로 유지)
--- ============================================================
 
 local RIVALS_GAMEID = 6035872082
 local originalData = {}
@@ -1671,7 +1609,64 @@ AnimationBox:AddSlider("AnimationSpeed", {
 })
 
 -- ============================================================
--- SaveManager (Settings 탭에 Configuration 섹션 추가)
+-- [ Menu ] 그룹박스 (Settings 탭 오른쪽 위)
+-- ============================================================
+local MenuBox = Settings:AddGroupbox({ Name = "Menu", Side = 2 })
+
+MenuBox:AddCheckbox("MenuBindEnabled", {
+    Text = "Menu bind",
+    Default = true,
+    Callback = function(Value)
+        if Library.KeybindFrame then
+            Library.KeybindFrame.Visible = Value
+        end
+    end,
+})
+
+MenuBox:AddCheckbox("AutoExecuteEnabled", {
+    Text = "Auto Execute",
+    Default = false,
+    Callback = function(Value)
+        getgenv().AutoExecute = Value
+    end,
+})
+
+MenuBox:AddCheckbox("SilentExecuteEnabled", {
+    Text = "Silent Execute",
+    Default = false,
+    Callback = function(Value)
+        getgenv().SilentExecute = Value
+    end,
+})
+
+-- Unload 버튼 (라이브러리가 AddButton 미지원이면 자동 skip)
+do
+    local ok, err = pcall(function()
+        MenuBox:AddButton({
+            Text = "Unload",
+            Func = function()
+                pcall(function()
+                    if getgenv().__UndergroundStop then getgenv().__UndergroundStop() end
+                end)
+                pcall(function() stopNoclip() end)
+                pcall(function() cleanupFly() end)
+                pcall(function() stopThirdPerson() end)
+                pcall(function() stopAnimation() end)
+                pcall(function() uninstallKillSoundSystem() end)
+                pcall(function() uninstallHitSound() end)
+                pcall(function()
+                    if Library.Unload then Library:Unload() end
+                end)
+            end,
+        })
+    end)
+    if not ok then
+        warn("[Minho] Unload 버튼 생성 실패 (AddButton 미지원):", err)
+    end
+end
+
+-- ============================================================
+-- SaveManager
 -- ============================================================
 if SaveManager then
     SaveManager:SetLibrary(Library)
