@@ -1241,100 +1241,6 @@ local function uninstallKillSoundSystem()
     cleanupKillSoundSystem()
 end
 
-local textureState = getgenv().__MinhoTextureState or {
-    Enabled = false,
-    Selected = "Default",
-    IdMap = {},
-    Conn = nil,
-    Cache = {},
-}
-getgenv().__MinhoTextureState = textureState
-
-if textureState.Conn then
-    pcall(function() textureState.Conn:Disconnect() end)
-    textureState.Conn = nil
-end
-
-local TexturePacks = {
-    ["Default"] = nil,
-    ["Hollow Blue"] = {
-        ids = {13220167337},
-        url = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/texture_pack/item_slot_3_blue_hollow.png"
-    },
-    ["Custom"] = {
-        ids = {7658055825},
-        url = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/texture_pack/c5ce6cb7-b2a6-4fc9-b59b-87a9627c8552.png"
-    },
-}
-
-local function getTextureAsset(url)
-    if textureState.Cache[url] then return textureState.Cache[url] end
-    local success, result = pcall(function()
-        if writefile and isfile and getcustomasset then
-            local hash = 0
-            for i = 1, #url do
-                hash = (hash * 31 + string.byte(url, i)) % 2^31
-            end
-            local fileName = "mc_tex_" .. tostring(hash) .. ".asset"
-            if not isfile(fileName) then
-                local data = game:HttpGet(url)
-                if data and #data > 80 then
-                    writefile(fileName, data)
-                end
-            end
-            local asset = getcustomasset(fileName)
-            if asset and asset ~= "" then
-                return asset
-            end
-        end
-        return url
-    end)
-    local final = (success and result) or url
-    textureState.Cache[url] = final
-    return final
-end
-
-local function applyTexture(obj)
-    if not obj then return end
-    if not textureState.Enabled then return end
-    local function replace(property)
-        local success, value = pcall(function() return obj[property] end)
-        if not success or type(value) ~= "string" then return end
-        local id = string.match(value, "%d+")
-        if id and textureState.IdMap[id] then
-            pcall(function() obj[property] = textureState.IdMap[id] end)
-        end
-    end
-    if obj:IsA("Sound") then
-        replace("SoundId")
-    elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
-        replace("Image")
-    elseif obj:IsA("Decal") or obj:IsA("Texture") then
-        replace("Texture")
-    elseif obj:IsA("MeshPart") then
-        replace("TextureID")
-    end
-end
-
-local function refreshTexturePack()
-    if textureState.Conn then
-        textureState.Conn:Disconnect()
-        textureState.Conn = nil
-    end
-    textureState.IdMap = {}
-    local pack = TexturePacks[textureState.Selected]
-    if not pack then return end
-    for _, id in ipairs(pack.ids) do
-        textureState.IdMap[tostring(id)] = getTextureAsset(pack.url)
-    end
-    for _, descendant in ipairs(game:GetDescendants()) do
-        task.spawn(applyTexture, descendant)
-    end
-    textureState.Conn = game.DescendantAdded:Connect(function(obj)
-        task.defer(applyTexture, obj)
-    end)
-end
-
 local Rage = Main:AddGroupbox({ Name = "Rage", Side = 1 })
 
 local UERage_Toggle = Rage:AddToggle("UEAssistedRage", {
@@ -1406,25 +1312,192 @@ Skybox:AddDropdown("SkyboxType", {
 })
 
 local TexturePackBox = World:AddGroupbox({ Name = "Texture Pack", Side = 2 })
-TexturePackBox:AddDropdown("TexturePack", {
-    Text = "Texture Pack",
-    Values = { "Default", "Hollow Blue", "Custom" },
-    Default = "Default", Multi = false,
-    Callback = function(Value)
-        textureState.Selected = Value
-        if Value == "Default" then
-            textureState.Enabled = false
-            if textureState.Conn then
-                textureState.Conn:Disconnect()
-                textureState.Conn = nil
+
+local WORLD_TEXTURES = {
+    ["Hollow Blue"] = {
+        ids = {7658055825},
+        url = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/texture_pack/item_slot_3_blue_hollow.png",
+    },
+    ["Custom"] = {
+        ids = {13220167337},
+        url = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/texture_pack/c5ce6cb7-b2a6-4fc9-b59b-87a9627c8552.png",
+    },
+}
+
+local worldTextureCache = {}
+local worldTextureOriginals = {}
+local worldTextureTargets = {}
+local currentIdMap = {}
+
+local function getWorldTexture(url)
+    if worldTextureCache[url] then return worldTextureCache[url] end
+    local success, result = pcall(function()
+        if writefile and isfile and getcustomasset then
+            local hash = 0
+            for i = 1, #url do
+                hash = (hash * 31 + string.byte(url, i)) % 2^31
             end
-            textureState.IdMap = {}
+            local fileName = "minho_world_" .. tostring(hash) .. ".png"
+            if not isfile(fileName) then
+                local data = game:HttpGet(url)
+                if data and #data > 80 then
+                    writefile(fileName, data)
+                end
+            end
+            if isfile(fileName) then
+                local asset = getcustomasset(fileName)
+                if asset and asset ~= "" then
+                    return asset
+                end
+            end
+        end
+        return url
+    end)
+    local asset = (success and result) or url
+    worldTextureCache[url] = asset
+    return asset
+end
+
+local function getWorldTextureProperty(obj)
+    if obj:IsA("Decal") or obj:IsA("Texture") then
+        return "Texture"
+    elseif obj:IsA("MeshPart") then
+        return "TextureID"
+    end
+    return nil
+end
+
+local function getWorldTextureId(value)
+    if type(value) ~= "string" then return nil end
+    return string.match(value, "%d+")
+end
+
+local function rememberWorldTextureTarget(obj, property, original)
+    worldTextureOriginals[obj] = original
+    worldTextureTargets[obj] = property
+end
+
+local function findWorldTextureTargets()
+    for _, obj in ipairs(game:GetDescendants()) do
+        local property = getWorldTextureProperty(obj)
+        if property then
+            local success, value = pcall(function() return obj[property] end)
+            if success and type(value) == "string" then
+                local id = getWorldTextureId(value)
+                if id and currentIdMap[id] and worldTextureOriginals[obj] == nil then
+                    rememberWorldTextureTarget(obj, property, value)
+                end
+            end
+        end
+    end
+end
+
+local function restoreWorldTextures()
+    for obj, original in pairs(worldTextureOriginals) do
+        if obj and obj.Parent then
+            local property = worldTextureTargets[obj] or getWorldTextureProperty(obj)
+            if property then
+                pcall(function()
+                    obj[property] = ""
+                    obj[property] = original
+                end)
+            end
+        end
+    end
+end
+
+local function clearWorldTextureTracking()
+    table.clear(worldTextureOriginals)
+    table.clear(worldTextureTargets)
+end
+
+local function getSelectedPack()
+    local selected = "Hollow Blue"
+    if Library and Library.Options and Library.Options.TexturePack then
+        selected = Library.Options.TexturePack.Value or "Hollow Blue"
+    end
+    if type(selected) == "table" then selected = selected[1] end
+    return WORLD_TEXTURES[tostring(selected)] or WORLD_TEXTURES["Hollow Blue"]
+end
+
+local function buildIdMap(pack)
+    currentIdMap = {}
+    if pack and pack.ids then
+        for _, id in ipairs(pack.ids) do
+            currentIdMap[tostring(id)] = true
+        end
+    end
+end
+
+local function applyWorldTexture()
+    if not TexturePackBox or not TexturePackBox.Toggle then return end
+    local pack = getSelectedPack()
+    if not pack then return end
+    local asset = getWorldTexture(pack.url)
+    buildIdMap(pack)
+    findWorldTextureTargets()
+    for obj, property in pairs(worldTextureTargets) do
+        if obj and obj.Parent then
+            pcall(function()
+                obj[property] = ""
+                obj[property] = asset
+            end)
+        end
+    end
+end
+
+local function switchWorldTexture()
+    restoreWorldTextures()
+    clearWorldTextureTracking()
+    applyWorldTexture()
+end
+
+local TextureToggle = TexturePackBox:AddCheckbox("TexturePackEnabled", {
+    Text = "Enabled",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            applyWorldTexture()
         else
-            textureState.Enabled = true
-            refreshTexturePack()
+            restoreWorldTextures()
+            clearWorldTextureTracking()
+            currentIdMap = {}
         end
     end
 })
+
+TexturePackBox:AddDropdown("TexturePack", {
+    Text = "Texture Pack",
+    Values = { "Hollow Blue", "Custom" },
+    Default = "Hollow Blue", Multi = false,
+    Callback = function(Value)
+        if TextureToggle and TextureToggle.Value then
+            switchWorldTexture()
+        end
+    end
+})
+
+game.DescendantAdded:Connect(function(obj)
+    if not TextureToggle or not TextureToggle.Value then return end
+    task.defer(function()
+        local property = getWorldTextureProperty(obj)
+        if not property then return end
+        local success, value = pcall(function() return obj[property] end)
+        if not success or type(value) ~= "string" then return end
+        local id = getWorldTextureId(value)
+        if id and currentIdMap[id] then
+            if worldTextureOriginals[obj] == nil then
+                rememberWorldTextureTarget(obj, property, value)
+            end
+            local pack = getSelectedPack()
+            local asset = getWorldTexture(pack.url)
+            pcall(function()
+                obj[property] = ""
+                obj[property] = asset
+            end)
+        end
+    end)
+end)
 
 local SoundsBox = Visuals:AddGroupbox({ Name = "Sounds", Side = 1 })
 
@@ -1737,9 +1810,6 @@ LocalPlayer.AncestryChanged:Connect(function()
         pcall(function() uninstallKillSoundSystem() end)
         pcall(function() uninstallHitSound() end)
         pcall(function() stopUnderground() end)
-        pcall(function()
-            if textureState.Conn then textureState.Conn:Disconnect() end
-        end)
     end
 end)
 
