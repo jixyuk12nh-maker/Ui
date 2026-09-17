@@ -1289,6 +1289,43 @@ local function uninstallKillSoundSystem()
     cleanupKillSoundSystem()
 end
 
+-- ==================== 설정 UI ====================
+
+-- Settings 탭 전용 Menu 박스
+local MenuBox = Settings:AddGroupbox({ Name = "Menu", Side = 2 })
+
+local MenuBindToggle = MenuBox:AddToggle("MenuBindToggle", {
+    Text = "Menu Bind",
+    Default = false,
+    Callback = function(Value) end
+})
+MenuBindToggle:AddKeyPicker("MenuBindKey", {
+    Text = "Menu Bind",
+    Default = "RightControl",
+    Mode = "Toggle",
+    SyncToggleState = false,
+})
+
+MenuBox:AddToggle("SilentExecute", {
+    Text = "Silent Execute",
+    Default = false,
+    Callback = function(Value) end
+})
+
+MenuBox:AddToggle("AutoExecute", {
+    Text = "Auto Execute",
+    Default = false,
+    Callback = function(Value) end
+})
+
+MenuBox:AddButton({
+    Text = "Unload",
+    Func = function()
+        Library:Unload()
+    end
+})
+
+-- Rage 박스
 local Rage = Main:AddGroupbox({ Name = "Rage", Side = 1 })
 
 local UERage_Toggle = Rage:AddToggle("UEAssistedRage", {
@@ -1321,9 +1358,9 @@ Underground_Toggle:AddKeyPicker("UndergroundKey", {
     SyncToggleState = true,
 })
 
+-- Speed Control 박스
 local SpeedControl = Main:AddGroupbox({ Name = "Speed Control", Side = 1 })
 
--- Recoil = 연사 (Full Auto)
 SpeedControl:AddToggle("Recoil", {
     Text = "Recoil",
     Default = false,
@@ -1398,36 +1435,7 @@ SpeedControl:AddSlider("MeleeCooldownValue", {
     end
 })
 
--- Menu 박스 (오른쪽 상단)
-local MenuBox = Settings:AddGroupbox({ Name = "Menu", Side = 2 })
-
-MenuBox:AddKeyPicker("MenuBind", {
-    Text = "Menu Bind",
-    Default = "RightControl",
-    Mode = "Toggle",
-    SyncToggleState = false,
-    NoUI = false,
-})
-
-MenuBox:AddToggle("SilentExecute", {
-    Text = "Silent Execute",
-    Default = false,
-    Callback = function(Value) end
-})
-
-MenuBox:AddToggle("AutoExecute", {
-    Text = "Auto Execute",
-    Default = false,
-    Callback = function(Value) end
-})
-
-MenuBox:AddButton({
-    Text = "Unload",
-    Func = function()
-        Library:Unload()
-    end
-})
-
+-- World 탭
 local Skybox = World:AddGroupbox({ Name = "Skybox", Side = 1 })
 Skybox:AddToggle("SkyboxEnabled", {
     Text = "Enabled", Default = false,
@@ -1448,6 +1456,7 @@ TexturePackBox:AddDropdown("TexturePack", {
     Callback = function(Value) print("Texture Pack:", Value) end
 })
 
+-- Visuals 탭
 local SoundsBox = Visuals:AddGroupbox({ Name = "Sounds", Side = 1 })
 
 SoundsBox:AddToggle("HitSoundEnabled", {
@@ -1501,6 +1510,7 @@ SoundsBox:AddSlider("KillSoundPitch", {
     Callback = function(Value) soundState.KillPitch = Value end
 })
 
+-- Character 탭
 local MovementBox = Character:AddGroupbox({ Name = "Movement", Side = 1 })
 
 MovementBox:AddToggle("VelocityEnabled", {
