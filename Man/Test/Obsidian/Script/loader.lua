@@ -3,7 +3,7 @@ local Library = loadstring(game:HttpGet(
 ))()
 
 local ThemeManager = loadstring(game:HttpGet(
-    "ttps://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/ThemeManager.lua"
+    "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/ThemeManager.lua"
 ))()
 ThemeManager:SetLibrary(Library)
 
