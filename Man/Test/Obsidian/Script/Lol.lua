@@ -480,7 +480,7 @@ getgenv().__MinhoUndergroundState = undergroundState
 
 local UNDERGROUND_DEPTH = 6
 local UNDERGROUND_MOVE_SPEED = 50
-local UNDERGROUND_STRAFE_RANGE = 3.5
+local UNDERGROUND_STRAFE_RANGE = 10.5
 local UNDERGROUND_STRAFE_SPEED = 30
 local UNDERGROUND_NOCLIP = true
 
@@ -1241,6 +1241,100 @@ local function uninstallKillSoundSystem()
     cleanupKillSoundSystem()
 end
 
+local textureState = getgenv().__MinhoTextureState or {
+    Enabled = false,
+    Selected = "Default",
+    IdMap = {},
+    Conn = nil,
+    Cache = {},
+}
+getgenv().__MinhoTextureState = textureState
+
+if textureState.Conn then
+    pcall(function() textureState.Conn:Disconnect() end)
+    textureState.Conn = nil
+end
+
+local TexturePacks = {
+    ["Default"] = nil,
+    ["Hollow Blue"] = {
+        ids = {13220167337},
+        url = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/texture_pack/item_slot_3_blue_hollow.png"
+    },
+    ["Custom"] = {
+        ids = {7658055825},
+        url = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/texture_pack/c5ce6cb7-b2a6-4fc9-b59b-87a9627c8552.png"
+    },
+}
+
+local function getTextureAsset(url)
+    if textureState.Cache[url] then return textureState.Cache[url] end
+    local success, result = pcall(function()
+        if writefile and isfile and getcustomasset then
+            local hash = 0
+            for i = 1, #url do
+                hash = (hash * 31 + string.byte(url, i)) % 2^31
+            end
+            local fileName = "mc_tex_" .. tostring(hash) .. ".asset"
+            if not isfile(fileName) then
+                local data = game:HttpGet(url)
+                if data and #data > 80 then
+                    writefile(fileName, data)
+                end
+            end
+            local asset = getcustomasset(fileName)
+            if asset and asset ~= "" then
+                return asset
+            end
+        end
+        return url
+    end)
+    local final = (success and result) or url
+    textureState.Cache[url] = final
+    return final
+end
+
+local function applyTexture(obj)
+    if not obj then return end
+    if not textureState.Enabled then return end
+    local function replace(property)
+        local success, value = pcall(function() return obj[property] end)
+        if not success or type(value) ~= "string" then return end
+        local id = string.match(value, "%d+")
+        if id and textureState.IdMap[id] then
+            pcall(function() obj[property] = textureState.IdMap[id] end)
+        end
+    end
+    if obj:IsA("Sound") then
+        replace("SoundId")
+    elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+        replace("Image")
+    elseif obj:IsA("Decal") or obj:IsA("Texture") then
+        replace("Texture")
+    elseif obj:IsA("MeshPart") then
+        replace("TextureID")
+    end
+end
+
+local function refreshTexturePack()
+    if textureState.Conn then
+        textureState.Conn:Disconnect()
+        textureState.Conn = nil
+    end
+    textureState.IdMap = {}
+    local pack = TexturePacks[textureState.Selected]
+    if not pack then return end
+    for _, id in ipairs(pack.ids) do
+        textureState.IdMap[tostring(id)] = getTextureAsset(pack.url)
+    end
+    for _, descendant in ipairs(game:GetDescendants()) do
+        task.spawn(applyTexture, descendant)
+    end
+    textureState.Conn = game.DescendantAdded:Connect(function(obj)
+        task.defer(applyTexture, obj)
+    end)
+end
+
 local Rage = Main:AddGroupbox({ Name = "Rage", Side = 1 })
 
 local UERage_Toggle = Rage:AddToggle("UEAssistedRage", {
@@ -1314,9 +1408,22 @@ Skybox:AddDropdown("SkyboxType", {
 local TexturePackBox = World:AddGroupbox({ Name = "Texture Pack", Side = 2 })
 TexturePackBox:AddDropdown("TexturePack", {
     Text = "Texture Pack",
-    Values = { "Default", "Neon", "Cartoon", "Realistic", "Anime", "Flat" },
+    Values = { "Default", "Hollow Blue", "Custom" },
     Default = "Default", Multi = false,
-    Callback = function(Value) print("Texture Pack:", Value) end
+    Callback = function(Value)
+        textureState.Selected = Value
+        if Value == "Default" then
+            textureState.Enabled = false
+            if textureState.Conn then
+                textureState.Conn:Disconnect()
+                textureState.Conn = nil
+            end
+            textureState.IdMap = {}
+        else
+            textureState.Enabled = true
+            refreshTexturePack()
+        end
+    end
 })
 
 local SoundsBox = Visuals:AddGroupbox({ Name = "Sounds", Side = 1 })
@@ -1630,6 +1737,9 @@ LocalPlayer.AncestryChanged:Connect(function()
         pcall(function() uninstallKillSoundSystem() end)
         pcall(function() uninstallHitSound() end)
         pcall(function() stopUnderground() end)
+        pcall(function()
+            if textureState.Conn then textureState.Conn:Disconnect() end
+        end)
     end
 end)
 
