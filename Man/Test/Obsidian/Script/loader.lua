@@ -2,19 +2,24 @@ local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/Minho_Hub_Obsidian_UI.lua"
 ))()
 
+if not Library then
+    warn("[Minho] UI 라이브러리 로드 실패")
+    return
+end
+
 local ThemeManager = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/ThemeManager.lua"
 ))()
-ThemeManager:SetLibrary(Library)
-
-local SaveManagerURL = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua"
-local RawCode = game:HttpGet(SaveManagerURL)
-local SaveManagerFunc = loadstring(RawCode)
+if ThemeManager then
+    ThemeManager:SetLibrary(Library)
+end
 
 local SaveManager = nil
-if SaveManagerFunc then
-    SaveManager = SaveManagerFunc()
-end
+pcall(function()
+    local SaveManagerURL = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua"
+    local func = loadstring(game:HttpGet(SaveManagerURL))
+    if func then SaveManager = func() end
+end)
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -27,18 +32,6 @@ local Debris            = game:GetService("Debris")
 local LocalPlayer       = Players.LocalPlayer
 
 local cloneref = cloneref or function(o) return o end
-local _identity = getthreadidentity and getthreadidentity() or 8
-local function asExploit(fn, ...)
-    if setthreadidentity then pcall(setthreadidentity, _identity) end
-    local ok, a, b, c = pcall(fn, ...)
-    return ok, a, b, c
-end
-local function asGame(fn, ...)
-    if setthreadidentity then pcall(setthreadidentity, 2) end
-    local ok, a, b, c = pcall(fn, ...)
-    if setthreadidentity then pcall(setthreadidentity, _identity) end
-    return ok, a, b, c
-end
 
 task.spawn(function()
     if not game:IsLoaded() then game.Loaded:Wait() end
@@ -215,6 +208,11 @@ local Window = Library:CreateWindow({
     ToggleKeybind = Enum.KeyCode.RightControl,
 })
 
+if not Window then
+    warn("[Minho] 창 생성 실패")
+    return
+end
+
 local Main      = Window:AddTab("Main")
 local World     = Window:AddTab("World")
 local Visuals   = Window:AddTab("Visuals")
@@ -223,7 +221,9 @@ local Spoofer   = Window:AddTab("Spoofer")
 local Misc      = Window:AddTab("Misc")
 local Settings  = Window:AddTab("Settings")
 
-ThemeManager:ApplyToTab(Settings)
+if ThemeManager then
+    pcall(function() ThemeManager:ApplyToTab(Settings) end)
+end
 
 local RIVALS_GAMEID = 6035872082
 local originalData = {}
@@ -629,15 +629,6 @@ local function applyMeleeCooldown()
             end
         end
     end
-end
-
-local function reapplyItemData()
-    if game.GameId ~= RIVALS_GAMEID then return end
-    restoreAllItemData()
-    if fireRateOn then applyFireRate() end
-    if meleeSpeedOn then applyMeleeSpeed() end
-    if fireOn then applyFireCooldown() end
-    if meleeOn then applyMeleeCooldown() end
 end
 
 local movementState = getgenv().__MinhoMovementState or {
@@ -2136,4 +2127,16 @@ LocalPlayer.AncestryChanged:Connect(function()
                 spoofState.AttributeConn:Disconnect()
                 spoofState.AttributeConn = nil
             end
-            for plr, attrs in pairs(spoofState.AttributeOrig
+            for plr, attrs in pairs(spoofState.AttributeOriginals) do
+                if plr and plr.Parent then
+                    for attr, saved in pairs(attrs) do
+                        if saved ~= nil then pcall(function() plr:SetAttribute(attr, saved) end) end
+                    end
+                end
+            end
+            spoofState.AttributeOriginals = {}
+        end)
+    end
+end)
+
+return true
