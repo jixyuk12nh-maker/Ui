@@ -590,13 +590,54 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 
 local fireRateOn = false
-local meleeOn    = false
+local meleeSpeedOn = false
+
+local fireValue = 100
+local fireOn = false
+local meleeValue = 100
+local meleeOn = false
+
+local function applyFireCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    local mult = fireValue / 100
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and not GUN_BLACKLIST[name] and not MELEE_WHITELIST[name] then
+            local orig = originalData[name]
+            if orig then
+                if orig.ShootCooldown ~= nil then data.ShootCooldown = orig.ShootCooldown * mult end
+                if orig.ShootBurstCooldown ~= nil then data.ShootBurstCooldown = orig.ShootBurstCooldown * mult end
+            end
+        end
+    end
+end
+
+local function applyMeleeCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    local mult = meleeValue / 100
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and MELEE_WHITELIST[name] then
+            local orig = originalData[name]
+            if orig then
+                if orig.AttackCooldown ~= nil then data.AttackCooldown = orig.AttackCooldown * mult end
+                if orig.SwingCooldown ~= nil then data.SwingCooldown = orig.SwingCooldown * mult end
+                if orig.MeleeCooldown ~= nil then data.MeleeCooldown = orig.MeleeCooldown * mult end
+                if orig.Cooldown ~= nil then data.Cooldown = orig.Cooldown * mult end
+                if orig.RecoveryTime ~= nil then data.RecoveryTime = orig.RecoveryTime * mult end
+                if orig.ResetTime ~= nil then data.ResetTime = orig.ResetTime * mult end
+            end
+        end
+    end
+end
 
 local function reapplyItemData()
     if game.GameId ~= RIVALS_GAMEID then return end
     restoreAllItemData()
     if fireRateOn then applyFireRate() end
-    if meleeOn    then applyMeleeSpeed() end
+    if meleeSpeedOn then applyMeleeSpeed() end
+    if fireOn then applyFireCooldown() end
+    if meleeOn then applyMeleeCooldown() end
 end
 
 local movementState = getgenv().__MinhoMovementState or {
@@ -1248,6 +1289,275 @@ local function uninstallKillSoundSystem()
     cleanupKillSoundSystem()
 end
 
+local DataHook = {
+    spoofs = {},
+    restore = nil,
+    controller = nil,
+    loaded = false,
+}
+
+local function getPlayerDataController()
+    if DataHook.controller then return DataHook.controller end
+    local ok, ctrl = pcall(function()
+        return require(LocalPlayer.PlayerScripts.Controllers.PlayerDataController)
+    end)
+    if ok and ctrl then
+        DataHook.controller = ctrl
+        return ctrl
+    end
+    return nil
+end
+
+function DataHook._load(current)
+    if DataHook.restore ~= nil then
+        if DataHook.restore.current == current then return true end
+        DataHook._revert()
+    end
+    local inner = rawget(current, "Data")
+    if inner == nil then return false end
+
+    local proxy = setmetatable({}, {
+        __index = function(_, key)
+            local spoof = DataHook.spoofs[key]
+            if spoof ~= nil then
+                local ok, val = pcall(spoof, inner[key])
+                if ok then return val end
+            end
+            return inner[key]
+        end,
+        __newindex = function(_, key, value) inner[key] = value end,
+        __len = function() return #inner end,
+        __iter = function() return next, inner end,
+    })
+    rawset(current, "Data", proxy)
+    DataHook.restore = { current = current, inner = inner }
+    return true
+end
+
+function DataHook._revert()
+    local r = DataHook.restore
+    if r == nil then return end
+    DataHook.restore = nil
+    rawset(r.current, "Data", r.inner)
+end
+
+function DataHook.initialize()
+    if DataHook.loaded then return true end
+    local ctrl = getPlayerDataController()
+    if ctrl == nil then return false end
+    DataHook.loaded = true
+    local current = rawget(ctrl, "CurrentData")
+    if current ~= nil then return DataHook._load(current) end
+    return false
+end
+
+function DataHook.set(field, fn)
+    DataHook.spoofs[field] = fn
+    DataHook.initialize()
+end
+
+function DataHook.unset(field)
+    DataHook.spoofs[field] = nil
+end
+
+function DataHook.getOriginal(field)
+    local r = DataHook.restore
+    if r == nil then
+        local ctrl = getPlayerDataController()
+        local current = ctrl and rawget(ctrl, "CurrentData") or nil
+        local data = current and rawget(current, "Data") or nil
+        return data and data[field] or nil
+    end
+    return r.inner[field]
+end
+
+function DataHook.trigger(field)
+    local ctrl = getPlayerDataController()
+    if ctrl == nil then return end
+    local current = (DataHook.restore and DataHook.restore.current) or rawget(ctrl, "CurrentData")
+    if current == nil then return end
+    pcall(function()
+        local signal = current:GetDataChangedSignal(field)
+        if signal ~= nil then
+            local value = current.Data[field]
+            signal:Fire(value, field)
+        end
+    end)
+end
+
+function DataHook.destroy()
+    local fields = {}
+    for f in pairs(DataHook.spoofs) do table.insert(fields, f) end
+    table.clear(DataHook.spoofs)
+    DataHook._revert()
+    DataHook.loaded = false
+    for _, f in ipairs(fields) do DataHook.trigger(f) end
+end
+
+local spoofState = getgenv().__MinhoSpoofState or {
+    AttributeOriginals = {},
+    AttributeSpoofs = {},
+    Flags = {},
+    ProfileHookInstalled = false,
+    AttributeConn = nil,
+    LocalOnly = true,
+}
+getgenv().__MinhoSpoofState = spoofState
+
+if spoofState.AttributeConn then
+    pcall(function() spoofState.AttributeConn:Disconnect() end)
+    spoofState.AttributeConn = nil
+end
+for plr, attrs in pairs(spoofState.AttributeOriginals) do
+    if plr and plr.Parent then
+        for attr, saved in pairs(attrs) do
+            if saved ~= nil then pcall(function() plr:SetAttribute(attr, saved) end) end
+        end
+    end
+end
+spoofState.AttributeOriginals = {}
+
+local ATTR_MAP = {
+    Level            = "Level",
+    Winstreak        = "StatisticDuelsWinStreak",
+    CasualWins       = "CasualWins",
+    RankedWins       = "RankedWins",
+    RankedElo        = "DisplayELO",
+    LeaderboardRank  = "LeaderboardRank",
+    CasualWinPercent = "CasualWinPercent",
+    RankedWinPercent = "RankedWinPercent",
+    NametagStatus    = "PlayerStatus",
+}
+local FLAG_ATTRS = {
+    Influencer     = { attr = "IsInfluencer",     value = true },
+    RobloxEmployee = { attr = "IsRobloxEmployee", value = true },
+    NosniyTeam     = { attr = "GroupRank",        value = 255 },
+}
+
+local function rememberAttribute(player, attr)
+    local byP = spoofState.AttributeOriginals[player]
+    if byP == nil then byP = {} spoofState.AttributeOriginals[player] = byP end
+    if byP[attr] == nil then
+        byP[attr] = player:GetAttribute(attr)
+    end
+end
+
+local function restoreAttribute(player, attr)
+    local byP = spoofState.AttributeOriginals[player]
+    if byP and byP[attr] ~= nil then
+        pcall(function() player:SetAttribute(attr, byP[attr]) end)
+        byP[attr] = nil
+    end
+end
+
+local function applySpoofAttributes()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if spoofState.LocalOnly and player ~= LocalPlayer then
+            for _, attr in pairs(ATTR_MAP) do restoreAttribute(player, attr) end
+            for _, spec in pairs(FLAG_ATTRS) do restoreAttribute(player, spec.attr) end
+            continue
+        end
+
+        for field, attr in pairs(ATTR_MAP) do
+            local spoof = spoofState.AttributeSpoofs[field]
+            if spoof and spoof.enabled then
+                rememberAttribute(player, attr)
+                local val = spoof.value
+                if field == "CasualWinPercent" or field == "RankedWinPercent" then
+                    val = (tonumber(val) or 0) / 100
+                end
+                pcall(function() player:SetAttribute(attr, val) end)
+            else
+                restoreAttribute(player, attr)
+            end
+        end
+
+        for field, spec in pairs(FLAG_ATTRS) do
+            if spoofState.Flags[field] then
+                rememberAttribute(player, spec.attr)
+                pcall(function() player:SetAttribute(spec.attr, spec.value) end)
+            else
+                restoreAttribute(player, spec.attr)
+            end
+        end
+    end
+end
+
+local attrClock = 0
+spoofState.AttributeConn = RunService.Heartbeat:Connect(function(dt)
+    attrClock += dt
+    if attrClock >= 0.25 then
+        attrClock = 0
+        pcall(applySpoofAttributes)
+    end
+end)
+
+local nameState = getgenv().__MinhoNameSpoofState or { Enabled = false, Value = "" }
+local displayState = getgenv().__MinhoDisplaySpoofState or { Enabled = false, Value = "" }
+local avatarState = getgenv().__MinhoAvatarSpoofState or { Enabled = false, Value = "" }
+getgenv().__MinhoNameSpoofState = nameState
+getgenv().__MinhoDisplaySpoofState = displayState
+getgenv().__MinhoAvatarSpoofState = avatarState
+
+if getgenv().__MinhoOldIndex and restorefunction then
+    pcall(restorefunction, getgenv().__MinhoOldIndex)
+    getgenv().__MinhoOldIndex = nil
+end
+
+if hookmetamethod and newcclosure then
+    local oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+        if typeof(self) == "Instance" and self:IsA("Player") and self == LocalPlayer then
+            if key == "Name" and nameState.Enabled and nameState.Value ~= "" then
+                return nameState.Value
+            end
+            if key == "DisplayName" and displayState.Enabled and displayState.Value ~= "" then
+                return displayState.Value
+            end
+            if key == "UserId" and avatarState.Enabled and avatarState.Value ~= "" then
+                local id = tonumber(avatarState.Value)
+                if id then return id end
+            end
+        end
+        return oldIndex(self, key)
+    end))
+    getgenv().__MinhoOldIndex = oldIndex
+end
+
+local PROFILE_FIELDS = {
+    Level            = { field = "Level",             scale = 1 },
+    CasualWins       = { field = "CasualWins",        scale = 1 },
+    RankedWins       = { field = "RankedWins",        scale = 1 },
+    RankedElo        = { field = "RankedCurrentELO",  scale = 1 },
+    LeaderboardRank  = { field = "LeaderboardRank",   scale = 1 },
+    CasualWinPercent = { field = "CasualWinPercent",  scale = 0.01 },
+    RankedWinPercent = { field = "RankedWinPercent",  scale = 0.01 },
+    FavoriteMap      = { field = "FavoriteMap",       scale = 1 },
+}
+
+local profileState = getgenv().__MinhoProfileSpoofState or {}
+getgenv().__MinhoProfileSpoofState = profileState
+
+local function installProfileHooks()
+    if spoofState.ProfileHookInstalled then return end
+    spoofState.ProfileHookInstalled = true
+
+    for key, spec in pairs(PROFILE_FIELDS) do
+        local fieldName = spec.field
+        local scale = spec.scale
+        DataHook.set(fieldName, function(original)
+            local node = profileState[key]
+            if not node or not node.enabled then return original end
+            local v = node.value
+            if scale ~= 1 then
+                return (tonumber(v) or 0) * scale
+            end
+            return v
+        end)
+    end
+end
+
+installProfileHooks()
+
 local Rage = Main:AddGroupbox({ Name = "Rage", Side = 1 })
 
 local UERage_Toggle = Rage:AddToggle("UEAssistedRage", {
@@ -1282,28 +1592,78 @@ Underground_Toggle:AddKeyPicker("UndergroundKey", {
 
 local SpeedControl = Main:AddGroupbox({ Name = "Speed Control", Side = 1 })
 
-SpeedControl:AddCheckbox("FireRateEnabled", {
-    Text = "Fire Rate (Guns)",
+SpeedControl:AddCheckbox("Recoil", {
+    Text = "Recoil",
     Default = false,
-    Callback = function(Value) fireRateOn = Value reapplyItemData() end
-})
-
-SpeedControl:AddCheckbox("AttackSpeedEnabled", {
-    Text = "Attack Speed (Melee)",
-    Default = false,
-    Callback = function(Value) meleeOn = Value reapplyItemData() end
+    Callback = function(Value)
+        weaponState.FullAuto = Value
+        updateWeaponState()
+    end
 })
 
 SpeedControl:AddCheckbox("NoSpread", {
     Text = "No Spread",
     Default = false,
-    Callback = function(Value) weaponState.NoSpread = Value updateWeaponState() end
+    Callback = function(Value)
+        weaponState.NoSpread = Value
+        updateWeaponState()
+    end
 })
 
-SpeedControl:AddCheckbox("FullAuto", {
-    Text = "Full Auto",
+SpeedControl:AddCheckbox("FireCooldownEnabled", {
+    Text = "Fire Cooldown (Guns)",
     Default = false,
-    Callback = function(Value) weaponState.FullAuto = Value updateWeaponState() end
+    Callback = function(Value)
+        fireOn = Value
+        restoreAllItemData()
+        if fireOn then applyFireCooldown() end
+        if meleeOn then applyMeleeCooldown() end
+    end
+})
+
+SpeedControl:AddSlider("FireCooldownValue", {
+    Text = "Fire Cooldown Multiplier",
+    Default = 100,
+    Min = 0,
+    Max = 100,
+    Rounding = 1,
+    Suffix = "%",
+    Callback = function(Value)
+        fireValue = Value
+        if fireOn then
+            restoreAllItemData()
+            applyFireCooldown()
+            if meleeOn then applyMeleeCooldown() end
+        end
+    end
+})
+
+SpeedControl:AddCheckbox("MeleeCooldownEnabled", {
+    Text = "Melee Cooldown (Melee)",
+    Default = false,
+    Callback = function(Value)
+        meleeOn = Value
+        restoreAllItemData()
+        if fireOn then applyFireCooldown() end
+        if meleeOn then applyMeleeCooldown() end
+    end
+})
+
+SpeedControl:AddSlider("MeleeCooldownValue", {
+    Text = "Melee Cooldown Multiplier",
+    Default = 100,
+    Min = 0,
+    Max = 100,
+    Rounding = 1,
+    Suffix = "%",
+    Callback = function(Value)
+        meleeValue = Value
+        if meleeOn then
+            restoreAllItemData()
+            if fireOn then applyFireCooldown() end
+            applyMeleeCooldown()
+        end
+    end
 })
 
 local Skybox = World:AddGroupbox({ Name = "Skybox", Side = 1 })
@@ -1608,6 +1968,140 @@ AnimationBox:AddSlider("AnimationSpeed", {
     end
 })
 
+local LocalSpoofBox = Spoofer:AddGroupbox({ Name = "Local Player", Side = 1 })
+
+LocalSpoofBox:AddCheckbox("LocalNameEnable", {
+    Text = "Name", Default = false,
+    Callback = function(v) nameState.Enabled = v end,
+})
+LocalSpoofBox:AddInput("LocalNameValue", {
+    Text = "Value", Default = "", Placeholder = "Nosniy",
+    Callback = function(v) nameState.Value = tostring(v or "") end,
+})
+
+LocalSpoofBox:AddCheckbox("LocalDisplayNameEnable", {
+    Text = "Display Name", Default = false,
+    Callback = function(v) displayState.Enabled = v end,
+})
+LocalSpoofBox:AddInput("LocalDisplayNameValue", {
+    Text = "Value", Default = "", Placeholder = "Nosniy",
+    Callback = function(v) displayState.Value = tostring(v or "") end,
+})
+
+LocalSpoofBox:AddCheckbox("LocalAvatarEnable", {
+    Text = "Avatar (UserId)", Default = false,
+    Callback = function(v) avatarState.Enabled = v end,
+})
+LocalSpoofBox:AddInput("LocalAvatarValue", {
+    Text = "Value", Default = "", Placeholder = "20349956",
+    Callback = function(v) avatarState.Value = tostring(v or "") end,
+})
+
+do
+    local favoriteSpoof = spoofState.AttributeSpoofs.FavoriteMap
+        or { enabled = false, value = "Arena" }
+    spoofState.AttributeSpoofs.FavoriteMap = favoriteSpoof
+    LocalSpoofBox:AddCheckbox("LocalFavoriteMapEnable", {
+        Text = "Favorite Map", Default = false,
+        Callback = function(v) favoriteSpoof.enabled = v end,
+    })
+    LocalSpoofBox:AddInput("LocalFavoriteMapValue", {
+        Text = "Value", Default = "Arena", Placeholder = "Arena",
+        Callback = function(v) favoriteSpoof.value = tostring(v or "") end,
+    })
+
+    local nametagSpoof = spoofState.AttributeSpoofs.NametagStatus
+        or { enabled = false, value = "Prime" }
+    spoofState.AttributeSpoofs.NametagStatus = nametagSpoof
+    LocalSpoofBox:AddCheckbox("LocalNametagStatusEnable", {
+        Text = "Nametag Status", Default = false,
+        Callback = function(v) nametagSpoof.enabled = v end,
+    })
+    LocalSpoofBox:AddDropdown("LocalNametagStatusValue", {
+        Text = "Value",
+        Values = { "Prime", "Plus", "VIP", "None" },
+        Default = "Prime", Multi = false,
+        Callback = function(v) nametagSpoof.value = v end,
+    })
+end
+
+do
+    local numericDefaults = {
+        { key = "Winstreak",       label = "Winstreak",        default = 999 },
+        { key = "Level",           label = "Level",            default = 999 },
+        { key = "CasualWins",      label = "Casual Wins",      default = 99999 },
+        { key = "RankedWins",      label = "Ranked Wins",      default = 9999 },
+        { key = "RankedElo",       label = "Ranked Elo",       default = 3600 },
+        { key = "LeaderboardRank", label = "Leaderboard Rank", default = 1 },
+    }
+    for _, entry in ipairs(numericDefaults) do
+        local spoof = spoofState.AttributeSpoofs[entry.key]
+            or { enabled = false, value = entry.default }
+        spoofState.AttributeSpoofs[entry.key] = spoof
+        LocalSpoofBox:AddCheckbox("Local" .. entry.key .. "Enable", {
+            Text = entry.label, Default = false,
+            Callback = function(v) spoof.enabled = v end,
+        })
+        LocalSpoofBox:AddInput("Local" .. entry.key .. "Value", {
+            Text = "Value", Default = tostring(entry.default),
+            Callback = function(v)
+                local n = tonumber(v)
+                if n then spoof.value = n end
+            end,
+        })
+    end
+end
+
+do
+    local percentDefaults = {
+        { key = "CasualWinPercent", label = "Casual Win Percent" },
+        { key = "RankedWinPercent", label = "Ranked Win Percent" },
+    }
+    for _, entry in ipairs(percentDefaults) do
+        local spoof = spoofState.AttributeSpoofs[entry.key]
+            or { enabled = false, value = 100 }
+        spoofState.AttributeSpoofs[entry.key] = spoof
+        LocalSpoofBox:AddCheckbox("Local" .. entry.key .. "Enable", {
+            Text = entry.label, Default = false,
+            Callback = function(v) spoof.enabled = v end,
+        })
+        LocalSpoofBox:AddSlider("Local" .. entry.key .. "Value", {
+            Text = "Value",
+            Default = 100,
+            Min = 0,
+            Max = 100,
+            Rounding = 1,
+            Suffix = "%",
+            Callback = function(v) spoof.value = v end,
+        })
+    end
+end
+
+do
+    local flagDefaults = {
+        { key = "Influencer",     label = "Influencer" },
+        { key = "RobloxEmployee", label = "Roblox Employee" },
+        { key = "NosniyTeam",     label = "Nosniy Team" },
+    }
+    for _, entry in ipairs(flagDefaults) do
+        LocalSpoofBox:AddCheckbox("Local" .. entry.key, {
+            Text = entry.label, Default = false,
+            Callback = function(v) spoofState.Flags[entry.key] = v end,
+        })
+    end
+end
+
+local OtherSpoofBox = Spoofer:AddGroupbox({ Name = "Other Players", Side = 2 })
+
+OtherSpoofBox:AddCheckbox("OtherPlayersEnabled", {
+    Text = "Enable Other Player Spoofing", Default = false,
+    Callback = function(v) spoofState.LocalOnly = not v end,
+})
+
+OtherSpoofBox:AddLabel({
+    Text = "다른 플레이어 스푸핑은 본인 화면에만 적용됩니다.",
+})
+
 local SettingsBox = Settings:AddGroupbox({ Name = "Keybinds", Side = 1 })
 
 SettingsBox:AddCheckbox("ShowKeybindsWindow", {
@@ -1637,7 +2131,9 @@ LocalPlayer.AncestryChanged:Connect(function()
         pcall(function() uninstallKillSoundSystem() end)
         pcall(function() uninstallHitSound() end)
         pcall(function() stopUnderground() end)
-    end
-end)
-
-return true
+        pcall(function()
+            if spoofState.AttributeConn then
+                spoofState.AttributeConn:Disconnect()
+                spoofState.AttributeConn = nil
+            end
+            for plr, attrs in pairs(spoofState.AttributeOrig
