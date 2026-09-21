@@ -476,7 +476,7 @@ end)
 -- ========== queue_on_teleport (지원 시에만) ==========
 if hasQueueOnTeleport then
     pcall(function()
-        queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/nosniy-games/auto/refs/heads/main/stats.lua"))()]])
+        queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/Rivals.lua"))()]])
     end)
 else
     warn('[Rivals HUD] queue_on_teleport 미지원 - 텔레포트 지속성 없음')
