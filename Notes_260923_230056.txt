@@ -1,0 +1,248 @@
+좋습니다. khookclone처럼 "게임 함수 후킹 없이, 게임 데이터만 수정" 하는 방식으로 갑니다. 당신이 넣은 안티치트 우회 코드(hookfunction, CameraSecurity, Kick 후킹)를 전부 버리고, khookclone의 순수 데이터 조작만 남기세요.
+
+원칙
+
+하지 말 것 할 것
+hookfunction setmetatable 프록시
+require(CameraSecurity) 같은 보안 모듈 require PlayerDataController.CurrentData.Data 교체
+Kick/GetMouse 후킹 debug.setconstant로 상수 하나만 바꾸기
+setmetatable 후킹 coroutine.create + setthreadidentity(2)
+Utility.IsWithinPart 수정 게임 데이터(예: Info 테이블) 수정
+
+───
+
+1단계: 삭제할 블록 3개
+
+GitHub 파일에서 완전히 삭제:
+
+lua
+-- [삭제 1] CameraSecurity 블록
+pcall(function()
+    local lp = cloneref(game:GetService("Players")).LocalPlayer
+    local camSec = require(lp.PlayerScripts.Modules.CameraSecurity)
+    local mt = getrawmetatable(camSec)
+    ...
+end)
+
+
+lua
+-- [삭제 2] __MinhoStartupHooks 블록
+if not getgenv().__MinhoStartupHooks then
+    getgenv().__MinhoStartupHooks = true
+    ...
+end
+
+
+lua
+-- [삭제 3] Utility.IsWithinPart 후킹
+task.spawn(function()
+    local Modules = ReplicatedStorage:WaitForChild("Modules", 10)
+    ...
+    Utility.IsWithinPart = newcclosure(...)
+    Utility.IsWithinTaggedParts = newcclosure(...)
+end)
+
+
+───
+
+2단계: 코스메틱 코드를 khook 방식으로 수정
+
+당신의 CosmeticsWrap은 거의 맞습니다. 아래 4가지만 고치면 khookclone과 동일해집니다.
+
+수정 A: selections를 ItemHook 위로 이동
+
+lua
+local CosmeticsWrap = {}
+CosmeticsWrap._cache = {}
+CosmeticsWrap.selections = {}   -- ★ 여기로 (원래는 ItemHook 아래에 있었음)
+
+
+수정 B: DataHook.trigger가 원본 inner 값을 fire
+
+lua
+function CosmeticsWrap.DataHook.trigger(field)
+    local hook = CosmeticsWrap.DataHook
+    local current = hook.restore and hook.restore.current
+    if current == nil then
+        local controller = CosmeticsWrap.dataController()
+        current = controller and rawget(controller, "CurrentData") or nil
+    end
+    if current == nil then return end
+    local sig = CosmeticsWrap.DataHook._signal(current, field)
+    if sig ~= nil then
+        -- ★ 프록시 우회, 원본 inner 값을 fire
+        local inner = hook.restore and hook.restore.inner or rawget(current, "Data")
+        pcall(function() sig:Fire(inner[field], field) end)
+    end
+end
+
+
+수정 C: getWeaponData에 프레임 메모이제이션 추가
+
+lua
+CosmeticsWrap.Masker = { frame = 0, cache = {} }
+function CosmeticsWrap.Masker.invalidate() CosmeticsWrap.Masker.frame += 1 end
+function CosmeticsWrap.Masker.cached(key, build)
+    local entry = CosmeticsWrap.Masker.cache[key]
+    local frame = CosmeticsWrap.Masker.frame
+    if entry and entry.frame == frame then return entry.value end
+    local value = build()
+    CosmeticsWrap.Masker.cache[key] = { frame = frame, value = value }
+    return value
+end
+RunService.Heartbeat:Connect(CosmeticsWrap.Masker.invalidate)
+
+function CosmeticsWrap.ItemHook.getWeaponData(_self, controller, weaponName)
+    local original = CosmeticsWrap.ItemHook.findOriginal(weaponName)
+    if original == nil then return nil end
+    local selection = CosmeticsWrap.selections[weaponName]
+    if selection == nil then return original end
+    -- ★ 프레임 단위 캐시
+    return CosmeticsWrap.Masker.cached("weapon:" .. weaponName, function()
+        local patched, changed = CosmeticsWrap.ItemHook.applyCosmetics(
+            table.clone(original), selection)
+        if not changed then return original end
+        patched.Level = original.Level
+        patched.Prestige = original.Prestige
+        patched.XP = original.XP
+        return patched
+    end)
+end
+
+
+수정 D: ItemHook.revert에서 rawset(ALIAS, nil) 추가
+
+lua
+function CosmeticsWrap.ItemHook.revert()
+    local restore = CosmeticsWrap.ItemHook.restore
+    if restore == nil then return end
+    CosmeticsWrap.ItemHook.restore = nil
+    pcall(debug.setconstant, restore.fn, restore.index, restore.original)
+    if restore.utility ~= nil then
+        rawset(restore.utility, CosmeticsWrap.ItemHook.ALIAS, nil)   -- ★ 이 줄 추가
+    end
+end
+
+
+───
+
+3단계: Scene.objects()의 5초 캐시 제거
+
+lua
+-- 이전 (문제)
+function CosmeticsWrap.Scene.objects()
+    local now = os.clock()
+    if CosmeticsWrap.Scene._objectsCache and now - CosmeticsWrap.Scene._objectsCacheTime < 5 then
+        return CosmeticsWrap.Scene._objectsCache
+    end
+    -- ...
+    CosmeticsWrap.Scene._objectsCache = out
+    CosmeticsWrap.Scene._objectsCacheTime = now
+    return out
+end
+
+-- 이후 (khookclone 방식)
+function CosmeticsWrap.Scene.objects()
+    local out = {}
+    local equipment = CosmeticsWrap.equipmentModule()
+    if equipment ~= nil then
+        local interface = rawget(equipment, "Interface")
+        if typeof(interface) == "table" then
+            local customize = rawget(interface, "Customize")
+            out.cosmetics = typeof(customize) == "table" and rawget(customize, "Cosmetics") or nil
+            out.left = rawget(interface, "Left")
+        end
+        out.floatingModel = rawget(equipment, "FloatingModel")
+    end
+    local lobby = CosmeticsWrap.lobbyModule()
+    if lobby ~= nil then
+        out.buttons = rawget(lobby, "Buttons")
+    end
+    if next(out) == nil then return nil end
+    return out
+end
+
+
+그리고 CosmeticsWrap.Scene = { _equipmentQueued = false, _selectionQueued = false } — _objectsCache, _objectsCacheTime 필드 제거.
+
+───
+
+4단계: CosmeticsWrap.enable()이 ItemHook까지 확실히 부르는지 확인
+
+lua
+function CosmeticsWrap.enable()
+    CosmeticsWrap.DataHook.initialize()
+    local ok, err = CosmeticsWrap.ItemHook.load()
+    if not ok then
+        warn("[CosmeticsWrap] ItemHook load failed: " .. tostring(err))
+    end
+    return ok
+end
+
+
+파일 끝에서 CosmeticsWrap.enable()이 한 번만 호출되게 하세요.
+
+───
+
+5단계: Khook처럼 무기 스탯도 데이터로 수정 (선택)
+
+당신 파일의 applyFireCooldown / applyMeleeCooldown은 ItemLibrary.Items 테이블을 직접 수정합니다. 이건 이미 khook 방식입니다 (게임 함수 후킹 없음). 이건 그대로 두세요.
+
+GUN_BLACKLIST에 있는 무기(Molotov, Grenade 등)는 스탯을 안 건드리니까 안전합니다.
+
+단, applyFireRate(0.001로 고정)는 위험합니다. 이건 너무 극단적이라 서버가 감지할 수 있습니다. 대신:
+
+lua
+-- applyFireRate 대신 슬라이더 값 사용
+local function applyFireCooldown()
+    local items = getRivalsItems()
+    if not items then return end
+    local mult = fireValue / 100   -- 0~100%
+    for name, data in pairs(items) do
+        if typeof(data) == "table" and not GUN_BLACKLIST[name] and not MELEE_WHITELIST[name] then
+            local orig = originalData[name]
+            if orig then
+                if orig.ShootCooldown ~= nil then data.ShootCooldown = orig.ShootCooldown * mult end
+                if orig.ShootBurstCooldown ~= nil then data.ShootBurstCooldown = orig.ShootBurstCooldown * mult end
+            end
+        end
+    end
+end
+
+
+이미 applyFireCooldown이 이렇게 되어있으니, applyFireRate(0.001 고정)는 호출하지 마세요.
+
+───
+
+최종 정리
+
+GitHub 파일에서:
+
+1. 삭제: CameraSecurity 블록, __MinhoStartupHooks 블록, Utility.IsWithinPart 후킹
+2. 수정: selections 선언 위치, DataHook.trigger, getWeaponData, ItemHook.revert
+3. 삭제: Scene.objects의 5초 캐시
+4. 유지: DataHook, ItemHook, Scene.run, applyFireCooldown, applyMeleeCooldown
+
+이렇게 하면 khookclone과 완전히 동일한 방식이 됩니다:
+
+· 게임 함수 후킹 0개
+· 게임 데이터 수정만
+· debug.setconstant 하나만 게임 함수를 건드림 (khook도 씀)
+
+───
+
+실행
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/main/Man/Test/Obsidian/Script/Minho_Hub_Cosmetics_Integrated.lua"))()
+
+
+커밋 후 이 한 줄 실행.
+
+그래도 튕기면 ItemHook.load() 한 줄만 주석처리해서 테스트:
+
+· 안 튕기면 → debug.setconstant가 원인
+· 튕기면 → 다른 곳 (그럼 다시 알려주세요)
+
+───
+
+핵심: 당신이 넣은 "안티치트 우회" 코드가 안티치트 유발 코드였습니다. khook은 아무것도 우회하지 않고, 게임이 정상으로 보이는 데이터만 만듭니다. 그게 진짜 방식입니다.
