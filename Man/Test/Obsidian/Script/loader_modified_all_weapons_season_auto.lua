@@ -1677,7 +1677,7 @@ end)
 local WrapViewport = Instance.new("ViewportFrame")
 WrapViewport.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 WrapViewport.BorderSizePixel = 0
-WrapViewport.Size = UDim2.new(1, 0, 0, 220)
+WrapViewport.Size = UDim2.new(1, 0, 0, 180)
 WrapViewport.Visible = false
 WrapViewport.Active = false
 WrapViewport.Parent = Group.Container
