@@ -24,6 +24,8 @@ local RunService        = game:GetService("RunService")
 local SoundService      = game:GetService("SoundService")
 local Lighting          = game:GetService("Lighting")
 local Debris            = game:GetService("Debris")
+local HttpService       = game:GetService("HttpService")
+local VRService         = game:GetService("VRService")
 local LocalPlayer       = Players.LocalPlayer
 
 local cloneref = cloneref or function(o) return o end
@@ -1277,6 +1279,7 @@ local Character = Window:AddTab("Character")
 local Misc      = Window:AddTab("Misc")
 local Settings  = Window:AddTab("Settings")
 local Cosmetics = Window:AddTab("Cosmetics")
+local Spoofer   = Window:AddTab("Spoofer")
 local SeasonCharmOverrideBox = Cosmetics:AddGroupbox({ Name = "Season Charm Override", Side = 2 })
 
 -- "None" 옵션 추가
