@@ -4733,7 +4733,10 @@ if SaveManager then
 else
     warn("SaveManager 로드 실패. Configuration 섹션을 건너뜁니다.")
 end
-
+warn("[Check] Library = " .. tostring(Library))
+warn("[Check] Library.Notify = " .. tostring(Library.Notify))
+warn("[Check] Spoofer = " .. tostring(Spoofer))
+warn("[Check] Window = " .. tostring(Window))
 local State = {
     device = nil,
     deviceHook = nil,
