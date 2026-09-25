@@ -1,0 +1,980 @@
+--!nonstrict
+-- =====================================================
+-- Minho Hub — Spoofer (MeshId/TextureID 교체 방식)
+-- + attachAccessory 이식
+-- + 닉네임 입력으로 서버에 없는 유저도 스푸핑 가능
+-- =====================================================
+
+local Library = loadstring(game:HttpGet(
+"https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/Minho_Hub_Obsidian_UI.lua"
+))()
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local VRService = game:GetService("VRService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+
+local Window = Library:CreateWindow({
+Title = "Minho Hub",
+Footer = "Spoofer",
+Size = UDim2.fromOffset(950, 600),
+ToggleKeybind = Enum.KeyCode.RightControl,
+})
+
+local Spoofer = Window:AddTab("Spoofer")
+
+local State = {
+device = nil,
+deviceHook = nil,
+attrOriginal = {},
+dataHook = { spoofs = {}, restore = nil },
+
+charEnabled = false,
+charUserId = nil,
+charApplied = nil,
+charCache = {},
+
+originalName = LocalPlayer.Name,
+originalDisplayName = LocalPlayer.DisplayName,
+
+partBackup = {},
+accBackup = {},
+syncConn = nil,
+
+playerDrop = nil, -- Dropdown 참조 (갱신용)
+}
+
+local Cfg = {
+Name = { on = false, val = "Minho" },
+DisplayName = { on = false, val = "Minho" },
+Winstreak = { on = false, val = 999 },
+Level = { on = false, val = 999 },
+CasualWins = { on = false, val = 9999 },
+RankedWins = { on = false, val = 9999 },
+CasualWinPercent = { on = false, val = 100 },
+RankedWinPercent = { on = false, val = 100 },
+RankedElo = { on = false, val = 3600 },
+LeaderboardRank = { on = false, val = 1 },
+FavoriteMap = { on = false, val = "Arena" },
+NametagStatus = { on = false, val = "Prime" },
+RankTier = { on = false, val = "Archnemesis" },
+Influencer = { on = false },
+RobloxEmployee = { on = false },
+NosniyTeam = { on = false },
+}
+
+local MAPS = {
+"Arena", "Duel Arena", "Rooftop", "Dojo", "Cave",
+"Beach", "Temple", "Sky Islands", "Volcano",
+"Westown", "Station", "Docks", "Random",
+}
+
+local TIERS = {
+"Unranked", "Bronze 1", "Bronze 2", "Bronze 3",
+"Silver 1", "Silver 2", "Silver 3",
+"Gold 1", "Gold 2", "Gold 3",
+"Platinum 1", "Platinum 2", "Platinum 3",
+"Diamond 1", "Diamond 2", "Diamond 3",
+"Onyx 1", "Onyx 2", "Onyx 3",
+"Nemesis", "Archnemesis",
+}
+
+local TAGS = { "Prime", "Contraband" }
+
+local DEVICES = {
+Computer = { KeyboardEnabled = true, MouseEnabled = true, TouchEnabled = false, GamepadEnabled = false, VREnabled = false },
+Mobile = { KeyboardEnabled = false, MouseEnabled = false, TouchEnabled = true, GamepadEnabled = false, VREnabled = false },
+Console = { KeyboardEnabled = false, MouseEnabled = false, TouchEnabled = false, GamepadEnabled = true, VREnabled = false },
+VR = { KeyboardEnabled = false, MouseEnabled = false, TouchEnabled = false, GamepadEnabled = false, VREnabled = true },
+}
+
+local function applyDevice(kind)
+if not hookmetamethod or not DEVICES[kind] then return false end
+State.device = kind
+if State.deviceHook then return true end
+local old
+old = hookmetamethod(game, "__index", function(self, key)
+local cur = State.device
+if cur then
+local p = DEVICES[cur]
+if self == VRService and key == "VREnabled" then return p.VREnabled end
+if self == UserInputService and p[key] ~= nil then return p[key] end
+end
+return old(self, key)
+end)
+State.deviceHook = old
+return true
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- attachAccessory (코드 2에서 이식)
+-- ═══════════════════════════════════════════════════════════════════════
+local function attachAccessory(character, humanoid, accessory)
+local handle = accessory:FindFirstChild("Handle")
+if not handle then
+accessory.Parent = character
+return
+end
+
+local attachName = nil
+for _, att in ipairs(handle:GetChildren()) do
+if att:IsA("Attachment") then
+attachName = att.Name
+break
+end
+end
+
+accessory.Parent = character
+
+if attachName then
+local targetAttachment = character:FindFirstChild(attachName, true)
+if targetAttachment then
+local targetPart = targetAttachment.Parent
+handle.CFrame = targetAttachment.WorldCFrame
+
+local weld = Instance.new("Weld")
+weld.Part0 = targetPart
+weld.Part1 = handle
+local handleAtt = handle:FindFirstChildOfClass("Attachment")
+weld.C0 = targetAttachment.CFrame
+weld.C1 = handleAtt and handleAtt.CFrame or CFrame.new()
+weld.Parent = handle
+end
+end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- 닉네임 → UserId 변환 (서버에 없는 유저도 가능)
+-- ═══════════════════════════════════════════════════════════════════════
+local function getUserIdFromName(username)
+if not username or username == "" then return nil end
+
+-- POST 방식 (지원되면 이게 정확함)
+local ok, result = pcall(function()
+local body = HttpService:JSONEncode({
+usernames = { username },
+excludeBannedUsers = false,
+})
+local response = game:HttpPost(
+"https://users.roblox.com/v1/usernames/users",
+body,
+"application/json",
+true
+)
+return HttpService:JSONDecode(response)
+end)
+
+if ok and result and result.data and result.data[1] then
+return result.data[1].id, result.data[1].name, result.data[1].displayName
+end
+
+-- POST 안 되면 GET 검색으로 우회
+local ok2, result2 = pcall(function()
+local url = "https://users.roblox.com/v1/users/search?keyword="
+.. HttpService:UrlEncode(username) .. "&limit=10"
+local raw = game:HttpGet(url, true)
+return HttpService:JSONDecode(raw)
+end)
+
+if ok2 and result2 and result2.data then
+for _, u in ipairs(result2.data) do
+if u.name and u.name:lower() == username:lower() then
+return u.id, u.name, u.displayName
+end
+end
+-- 정확 매치 없으면 첫 번째 결과 반환
+if result2.data[1] then
+local u = result2.data[1]
+return u.id, u.name, u.displayName
+end
+end
+
+return nil
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- 서버 플레이어 목록 (Dropdown용)
+-- ═══════════════════════════════════════════════════════════════════════
+local function getServerPlayerList()
+local list = {}
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= LocalPlayer then
+table.insert(list, p.Name .. " (" .. tostring(p.UserId) .. ")")
+end
+end
+if #list == 0 then
+table.insert(list, "없음")
+end
+return list
+end
+
+local function parseUserId(str)
+if not str or str == "없음" then return nil end
+local id = string.match(str, "%((%d+)%)")
+return id and tonumber(id) or nil
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- 캐릭터 파츠 교체 방식
+-- ═══════════════════════════════════════════════════════════════════════
+
+local R15_PARTS = {
+"Head", "UpperTorso", "LowerTorso",
+"LeftUpperArm", "LeftLowerArm", "LeftHand",
+"RightUpperArm", "RightLowerArm", "RightHand",
+"LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+"RightUpperLeg", "RightLowerLeg", "RightFoot",
+}
+
+local function backupCharacter(char)
+State.partBackup = {}
+State.accBackup = {}
+
+for _, partName in ipairs(R15_PARTS) do
+local part = char:FindFirstChild(partName)
+if part and part:IsA("BasePart") then
+State.partBackup[part] = {
+MeshId = part:IsA("MeshPart") and part.MeshId or nil,
+TextureID = part:IsA("MeshPart") and part.TextureID or nil,
+Color = part.Color,
+Material = part.Material,
+Transparency = part.Transparency,
+Size = part.Size,
+Name = part.Name,
+}
+end
+end
+
+for _, child in ipairs(char:GetChildren()) do
+if child:IsA("Accessory") then
+State.accBackup[child] = child:Clone()
+elseif child:IsA("Shirt") or child:IsA("Pants") or child:IsA("ShirtGraphic") then
+State.accBackup[child] = child:Clone()
+end
+end
+end
+
+local function restoreCharacter()
+local char = LocalPlayer.Character
+if not char then return end
+
+for part, data in pairs(State.partBackup) do
+if part and part.Parent then
+pcall(function()
+if data.MeshId and part:IsA("MeshPart") then
+part.MeshId = data.MeshId
+end
+if data.TextureID and part:IsA("MeshPart") then
+part.TextureID = data.TextureID
+end
+part.Color = data.Color
+part.Material = data.Material
+part.Transparency = data.Transparency
+end)
+end
+end
+
+for _, child in ipairs(char:GetChildren()) do
+if child:IsA("Accessory") or child:IsA("Shirt") or child:IsA("Pants")
+or child:IsA("ShirtGraphic") then
+child:Destroy()
+end
+end
+for _, clone in pairs(State.accBackup) do
+pcall(function() clone:Clone().Parent = char end)
+end
+
+State.partBackup = {}
+State.accBackup = {}
+end
+
+local function applyCharacterParts(userId)
+local char = LocalPlayer.Character
+if not char then return end
+local humanoid = char:FindFirstChildOfClass("Humanoid")
+if not humanoid then return end
+
+if not next(State.partBackup) then
+backupCharacter(char)
+end
+
+local appearance = State.charCache[userId]
+if not appearance then
+local ok, result = pcall(function()
+return Players:GetCharacterAppearanceAsync(userId)
+end)
+if not ok or not result then
+Library:Notify("아바타 로드 실패: " .. userId, 3)
+return
+end
+State.charCache[userId] = result
+appearance = result
+end
+
+-- R15 파츠 MeshId/TextureID 교체
+for _, partName in ipairs(R15_PARTS) do
+local srcPart = appearance:FindFirstChild(partName)
+local dstPart = char:FindFirstChild(partName)
+if srcPart and dstPart then
+if srcPart:IsA("MeshPart") and dstPart:IsA("MeshPart") then
+pcall(function() dstPart.MeshId = srcPart.MeshId end)
+pcall(function() dstPart.TextureID = srcPart.TextureID end)
+elseif srcPart:IsA("BasePart") and dstPart:IsA("BasePart") then
+pcall(function() dstPart.Color = srcPart.Color end)
+pcall(function() dstPart.Material = srcPart.Material end)
+pcall(function() dstPart.Size = srcPart.Size end)
+end
+end
+end
+
+-- 기존 액세서리/옷 제거
+for _, child in ipairs(char:GetChildren()) do
+if child:IsA("Accessory") or child:IsA("Shirt") or child:IsA("Pants")
+or child:IsA("ShirtGraphic") or child:IsA("BodyColors") then
+child:Destroy()
+end
+end
+
+-- 새 액세서리/옷 부착
+for _, v in ipairs(appearance:GetChildren()) do
+local clone = v:Clone()
+if clone:IsA("Shirt") or clone:IsA("Pants")
+or clone:IsA("ShirtGraphic") or clone:IsA("BodyColors") then
+clone.Parent = char
+elseif clone:IsA("Accessory") then
+pcall(function() attachAccessory(char, humanoid, clone) end)
+end
+end
+
+-- 얼굴 텍스처
+local head = char:FindFirstChild("Head")
+if head then
+local face = appearance:FindFirstChild("Head")
+if face then
+for _, dec in ipairs(face:GetChildren()) do
+if dec:IsA("Decal") then
+local existingFace = head:FindFirstChild("face")
+if existingFace then
+existingFace.Texture = dec.Texture
+else
+local nf = Instance.new("Decal")
+nf.Name = "face"
+nf.Texture = dec.Texture
+nf.Parent = head
+end
+break
+end
+end
+end
+end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- 신원 스푸핑 (UserId 원본 유지)
+-- ═══════════════════════════════════════════════════════════════════════
+local function keepIdentitySafe()
+if Cfg.Name.on then
+pcall(function() LocalPlayer.Name = tostring(Cfg.Name.val) end)
+end
+if Cfg.DisplayName.on then
+pcall(function() LocalPlayer.DisplayName = tostring(Cfg.DisplayName.val) end)
+end
+end
+
+local function applyCharSpoof()
+if not State.charEnabled or not State.charUserId then return end
+task.spawn(function()
+local userId = tonumber(State.charUserId)
+if not userId then return end
+
+local data = State.charCache["user_" .. userId]
+if not data then
+data = { id = userId, name = "User" .. userId, displayName = "User" .. userId }
+pcall(function()
+local raw = game:HttpGet("https://users.roblox.com/v1/users/" .. tostring(userId), true)
+local dec = HttpService:JSONDecode(raw)
+if type(dec) == "table" and dec.id then
+data = {
+id = dec.id,
+name = dec.name or ("User" .. userId),
+displayName = dec.displayName or dec.name or ("User" .. userId),
+}
+end
+end)
+State.charCache["user_" .. userId] = data
+end
+
+State.charApplied = data
+applyCharacterParts(userId)
+Library:Notify("캐릭터 교체: " .. data.displayName .. " (" .. userId .. ")", 3)
+end)
+end
+
+local function restoreCharSpoof()
+State.charApplied = nil
+restoreCharacter()
+
+pcall(function()
+LocalPlayer.Name = State.originalName
+LocalPlayer.DisplayName = State.originalDisplayName
+end)
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+task.wait(2)
+if State.charEnabled and State.charApplied then
+State.partBackup = {}
+State.accBackup = {}
+applyCharacterParts(State.charApplied.id)
+end
+end)
+
+task.spawn(function()
+while task.wait(2) do
+if State.charEnabled and State.charApplied then
+local char = LocalPlayer.Character
+if char then
+local head = char:FindFirstChild("Head")
+local backup = State.partBackup[head]
+if head and backup and backup.MeshId and head:IsA("MeshPart") then
+if head.MeshId ~= backup.MeshId and State.charApplied then
+applyCharacterParts(State.charApplied.id)
+end
+end
+
+keepIdentitySafe()
+end
+end
+end
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Stats / 프로필
+-- ═══════════════════════════════════════════════════════════════════════
+local ATTR_MAP = {
+Level = "Level",
+Winstreak = "StatisticDuelsWinStreak",
+RankedElo = "DisplayELO",
+NametagStatus = "PlayerStatus",
+}
+local BADGE_MAP = {
+Influencer = { "IsInfluencer", true },
+RobloxEmployee = { "IsRobloxEmployee", true },
+NosniyTeam = { "GroupRank", 255 },
+}
+local DATA_MAP = {
+Level = "Level",
+Winstreak = "StatisticDuelsWinStreak",
+CasualWins = "StatisticDuelsWon",
+CasualWinPercent = "StatisticDuelsWinPercent",
+RankedWins = "StatisticRankedDuelsPlayed",
+RankedWinPercent = "StatisticRankedDuelsWinPercent",
+RankedElo = "RankedCurrentELO",
+FavoriteMap = "StatisticFavoriteMap",
+}
+
+local function rememberAttr(p, a)
+State.attrOriginal[p] = State.attrOriginal[p] or {}
+if State.attrOriginal[p][a] == nil then
+State.attrOriginal[p][a] = p:GetAttribute(a)
+end
+end
+local function restoreAttr(p, a)
+if State.attrOriginal[p] and State.attrOriginal[p][a] ~= nil then
+pcall(function() p:SetAttribute(a, State.attrOriginal[p][a]) end)
+State.attrOriginal[p][a] = nil
+end
+end
+
+local function getDataCtrl()
+local s = LocalPlayer:FindFirstChild("PlayerScripts")
+local c = s and s:FindFirstChild("Controllers")
+local m = c and c:FindFirstChild("PlayerDataController")
+if not m then return nil end
+local ok, v = pcall(require, m)
+return ok and v or nil
+end
+
+local function dataHookLoad()
+local ctrl = getDataCtrl()
+if not ctrl then return false end
+local cur = rawget(ctrl, "CurrentData")
+if not cur then return false end
+local inner = rawget(cur, "Data")
+if not inner then return false end
+if State.dataHook.restore then
+pcall(function()
+rawset(State.dataHook.restore.cur, "Data", State.dataHook.restore.inner)
+end)
+end
+local proxy = setmetatable({}, {
+__index = function(, key)
+local fn = State.dataHook.spoofs[key]
+if fn then return fn(inner[key]) end
+return inner[key]
+end,
+__newindex = function(, key, val) inner[key] = val end,
+__len = function() return #inner end,
+})
+rawset(cur, "Data", proxy)
+State.dataHook.restore = { cur = cur, inner = inner }
+return true
+end
+
+local function refreshStats()
+for _, p in ipairs(Players:GetPlayers()) do
+if p == LocalPlayer then
+for k, a in pairs(ATTR_MAP) do
+if Cfg[k] and Cfg[k].on then
+rememberAttr(p, a)
+pcall(function() p:SetAttribute(a, Cfg[k].val) end)
+else
+restoreAttr(p, a)
+end
+end
+for k, spec in pairs(BADGE_MAP) do
+if Cfg[k] and Cfg[k].on then
+rememberAttr(p, spec[1])
+pcall(function() p:SetAttribute(spec[1], spec[2]) end)
+else
+restoreAttr(p, spec[1])
+end
+end
+end
+end
+for k, field in pairs(DATA_MAP) do
+local node = Cfg[k]
+if node then
+local val = node.val
+if k == "CasualWinPercent" or k == "RankedWinPercent" then
+val = (tonumber(val) or 0) / 100
+end
+State.dataHook.spoofs[field] = function(orig)
+if node.on then return val end
+return orig
+end
+else
+State.dataHook.spoofs[field] = nil
+end
+end
+dataHookLoad()
+end
+
+task.spawn(function()
+while task.wait(0.5) do
+refreshStats()
+end
+end)
+
+RunService.RenderStepped:Connect(function()
+local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+local mainGui = pg and pg:FindFirstChild("MainGui")
+local mainFrame = mainGui and mainGui:FindFirstChild("MainFrame")
+local pages = mainFrame and mainFrame:FindFirstChild("Pages")
+if not pages then return end
+
+local viewProfile = pages:FindFirstChild("ViewProfile")
+local active = viewProfile and viewProfile:FindFirstChild("Active")
+local player = active and active:FindFirstChild("Player")
+if not player then return end
+
+local headshot = player:FindFirstChild("Headshot")
+local hsStreak = headshot and headshot:FindFirstChild("Streak")
+local hsv = hsStreak and hsStreak:FindFirstChild("Value")
+if hsv and Cfg.Winstreak.on then hsv.Text = tostring(Cfg.Winstreak.val) end
+
+local dn = player:FindFirstChild("DisplayName")
+if dn and Cfg.DisplayName.on then dn.Text = tostring(Cfg.DisplayName.val) end
+
+local un = player:FindFirstChild("Username")
+if un and Cfg.Name.on then un.Text = "@" .. tostring(Cfg.Name.val) end
+
+local casual = player:FindFirstChild("Casual")
+if casual then
+local wins = casual:FindFirstChild("Wins")
+if wins and Cfg.CasualWins.on then wins.Text = tostring(Cfg.CasualWins.val) end
+local wp = casual:FindFirstChild("WinPercent")
+if wp and Cfg.CasualWinPercent.on then wp.Text = tostring(Cfg.CasualWinPercent.val) .. "%" end
+end
+
+local ranked = player:FindFirstChild("Ranked")
+if ranked then
+local wins = ranked:FindFirstChild("Wins")
+if wins and Cfg.RankedWins.on then wins.Text = tostring(Cfg.RankedWins.val) end
+local wp = ranked:FindFirstChild("WinPercent")
+if wp and Cfg.RankedWinPercent.on then wp.Text = tostring(Cfg.RankedWinPercent.val) .. "%" end
+end
+
+local bragging = player:FindFirstChild("Bragging")
+if bragging then
+local streak = bragging:FindFirstChild("Streak")
+local sv = streak and streak:FindFirstChild("Value")
+if sv and Cfg.Winstreak.on then sv.Text = tostring(Cfg.Winstreak.val) end
+
+local level = bragging:FindFirstChild("Level")
+local lv = level and level:FindFirstChild("Value")
+if lv and Cfg.Level.on then lv.Text = tostring(Cfg.Level.val) end
+
+local rank = bragging:FindFirstChild("Rank")
+local rt = rank and rank:FindFirstChild("Title")
+if rt and Cfg.RankTier.on then rt.Text = tostring(Cfg.RankTier.val) end
+end
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- UI
+-- ═══════════════════════════════════════════════════════════════════════
+
+local CharBox = Spoofer:AddGroupbox({ Name = "Character Spoofer", Side = 1 })
+
+CharBox:AddToggle("CharSpoofEnable", {
+Text = "Enable",
+Default = false,
+Callback = function(v)
+State.charEnabled = v
+if v then
+applyCharSpoof()
+else
+restoreCharSpoof()
+Library:Notify("스푸퍼 해제", 2)
+end
+end,
+})
+
+-- ⭐ 닉네임 입력 (서버에 없는 유저도 가능)
+CharBox:AddInput("CharSpoofName", {
+Text = "닉네임 입력 (서버에 없어도 OK)",
+Default = "",
+Placeholder = "예: builderman",
+Finished = true,
+Callback = function(v)
+if not v or v == "" then return end
+Library:Notify("검색 중: " .. v, 2)
+task.spawn(function()
+local id, name, display = getUserIdFromName(v)
+if id then
+State.charUserId = id
+Library:Notify("찾음: " .. (display or name) .. " (" .. id .. ")", 3)
+if State.charEnabled then applyCharSpoof() end
+else
+Library:Notify("유저를 찾을 수 없음: " .. v, 3)
+end
+end)
+end,
+})
+
+-- ⭐ 서버 플레이어 Dropdown
+State.playerDrop = CharBox:AddDropdown("CharTargetDrop", {
+Text = "서버 플레이어 선택",
+Values = getServerPlayerList(),
+Default = nil,
+Multi = false,
+Callback = function(v)
+local id = parseUserId(v)
+if id then
+State.charUserId = id
+if State.charEnabled then applyCharSpoof() end
+end
+end,
+})
+
+-- ⭐ UserId 직접 입력
+CharBox:AddInput("CharSpoofUserId", {
+Text = "User ID 직접 입력",
+Default = "",
+Placeholder = "예: 1",
+Numeric = true,
+Finished = true,
+Callback = function(v)
+State.charUserId = tonumber(v)
+if State.charEnabled and State.charUserId then applyCharSpoof() end
+end,
+})
+
+CharBox:AddButton("RefreshPlayerList", {
+Text = "🔄 서버 플레이어 목록 새로고침",
+Callback = function()
+if State.playerDrop then
+local list = getServerPlayerList()
+if State.playerDrop.Refresh then
+pcall(function() State.playerDrop:Refresh(list) end)
+elseif State.playerDrop.SetValues then
+pcall(function() State.playerDrop:SetValues(list) end)
+else
+Library:Notify("Dropdown 갱신 미지원 - 라이브러리 확인 필요", 3)
+end
+end
+end,
+})
+
+CharBox:AddButton("ApplyCharSpoof", {
+Text = "Apply Now",
+Callback = function() applyCharSpoof() end,
+})
+
+-- 서버 플레이어 변동 시 Dropdown 자동 갱신
+Players.PlayerAdded:Connect(function()
+task.wait(0.5)
+if State.playerDrop and State.playerDrop.Refresh then
+pcall(function() State.playerDrop:Refresh(getServerPlayerList()) end)
+end
+end)
+
+Players.PlayerRemoving:Connect(function()
+task.wait(0.5)
+if State.playerDrop and State.playerDrop.Refresh then
+pcall(function() State.playerDrop:Refresh(getServerPlayerList()) end)
+end
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Identity
+-- ═══════════════════════════════════════════════════════════════════════
+
+local IDBox = Spoofer:AddGroupbox({ Name = "Identity", Side = 1 })
+
+IDBox:AddToggle("NameToggle", {
+Text = "Name",
+Default = false,
+Callback = function(v) Cfg.Name.on = v keepIdentitySafe() end,
+})
+IDBox:AddInput("NameInput", {
+Text = "Name",
+Default = Cfg.Name.val,
+Finished = true,
+Callback = function(v) Cfg.Name.val = v keepIdentitySafe() end,
+})
+
+IDBox:AddToggle("DNToggle", {
+Text = "Display Name",
+Default = false,
+Callback = function(v) Cfg.DisplayName.on = v keepIdentitySafe() end,
+})
+IDBox:AddInput("DNInput", {
+Text = "Display Name",
+Default = Cfg.DisplayName.val,
+Finished = true,
+Callback = function(v) Cfg.DisplayName.val = v keepIdentitySafe() end,
+})
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Profile
+-- ═══════════════════════════════════════════════════════════════════════
+
+local ProfBox = Spoofer:AddGroupbox({ Name = "Profile", Side = 1 })
+
+ProfBox:AddToggle("FMToggle", {
+Text = "Favorite Map",
+Default = false,
+Callback = function(v) Cfg.FavoriteMap.on = v refreshStats() end,
+})
+ProfBox:AddDropdown("FMDrop", {
+Text = "Map",
+Values = MAPS,
+Default = "Arena",
+Multi = false,
+Callback = function(v) Cfg.FavoriteMap.val = v refreshStats() end,
+})
+
+ProfBox:AddToggle("NTToggle", {
+Text = "Nametag Status",
+Default = false,
+Callback = function(v) Cfg.NametagStatus.on = v refreshStats() end,
+})
+ProfBox:AddDropdown("NTDrop", {
+Text = "Status",
+Values = TAGS,
+Default = "Prime",
+Multi = false,
+Callback = function(v) Cfg.NametagStatus.val = v refreshStats() end,
+})
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Badges
+-- ═══════════════════════════════════════════════════════════════════════
+
+local BadgeBox = Spoofer:AddGroupbox({ Name = "Badges", Side = 1 })
+
+BadgeBox:AddToggle("InfToggle", {
+Text = "Influencer",
+Default = false,
+Callback = function(v) Cfg.Influencer.on = v refreshStats() end,
+})
+BadgeBox:AddToggle("RobToggle", {
+Text = "Roblox Employee",
+Default = false,
+Callback = function(v) Cfg.RobloxEmployee.on = v refreshStats() end,
+})
+BadgeBox:AddToggle("NosToggle", {
+Text = "Nosniy Team",
+Default = false,
+Callback = function(v) Cfg.NosniyTeam.on = v refreshStats() end,
+})
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Device Spoof
+-- ═══════════════════════════════════════════════════════════════════════
+
+local DeviceBox = Spoofer:AddGroupbox({ Name = "Device Spoof", Side = 1 })
+
+DeviceBox:AddDropdown("DeviceDrop", {
+Text = "Spoof Device",
+Values = { "Off", "Computer", "Mobile", "Console", "VR" },
+Default = "Off",
+Multi = false,
+Callback = function(v)
+if v == "Off" or v == nil then State.device = nil else applyDevice(v) end
+end,
+})
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Stats
+-- ═══════════════════════════════════════════════════════════════════════
+
+local StatBox = Spoofer:AddGroupbox({ Name = "Stats", Side = 2 })
+
+StatBox:AddToggle("LevelToggle", {
+Text = "Level",
+Default = false,
+Callback = function(v) Cfg.Level.on = v refreshStats() end,
+})
+StatBox:AddInput("LevelInput", {
+Text = "Level",
+Default = tostring(Cfg.Level.val),
+Numeric = true,
+Finished = true,
+Callback = function(v)
+local n = tonumber(v) if n then Cfg.Level.val = n refreshStats() end
+end,
+})
+
+StatBox:AddToggle("WSToggle", {
+Text = "Winstreak",
+Default = false,
+Callback = function(v) Cfg.Winstreak.on = v refreshStats() end,
+})
+StatBox:AddInput("WSInput", {
+Text = "Winstreak",
+Default = tostring(Cfg.Winstreak.val),
+Numeric = true,
+Finished = true,
+Callback = function(v)
+local n = tonumber(v) if n then Cfg.Winstreak.val = n refreshStats() end
+end,
+})
+
+StatBox:AddToggle("CWinsToggle", {
+Text = "Casual Wins",
+Default = false,
+Callback = function(v) Cfg.CasualWins.on = v refreshStats() end,
+})
+StatBox:AddInput("CWinsInput", {
+Text = "Casual Wins",
+Default = tostring(Cfg.CasualWins.val),
+Numeric = true,
+Finished = true,
+Callback = function(v)
+local n = tonumber(v) if n then Cfg.CasualWins.val = n refreshStats() end
+end,
+})
+
+StatBox:AddToggle("CWPToggle", {
+Text = "Casual Win %",
+Default = false,
+Callback = function(v) Cfg.CasualWinPercent.on = v refreshStats() end,
+})
+StatBox:AddSlider("CWPInput", {
+Text = "Casual Win %",
+Default = Cfg.CasualWinPercent.val,
+Min = 0, Max = 100, Rounding = 1, Suffix = "%",
+Callback = function(v) Cfg.CasualWinPercent.val = v refreshStats() end,
+})
+
+StatBox:AddToggle("RWinsToggle", {
+Text = "Ranked Wins",
+Default = false,
+Callback = function(v) Cfg.RankedWins.on = v refreshStats() end,
+})
+StatBox:AddInput("RWinsInput", {
+Text = "Ranked Wins",
+Default = tostring(Cfg.RankedWins.val),
+Numeric = true,
+Finished = true,
+Callback = function(v)
+local n = tonumber(v) if n then Cfg.RankedWins.val = n refreshStats() end
+end,
+})
+
+StatBox:AddToggle("RWPToggle", {
+Text = "Ranked Win %",
+Default = false,
+Callback = function(v) Cfg.RankedWinPercent.on = v refreshStats() end,
+})
+StatBox:AddSlider("RWPInput", {
+Text = "Ranked Win %",
+Default = Cfg.RankedWinPercent.val,
+Min = 0, Max = 100, Rounding = 1, Suffix = "%",
+Callback = function(v) Cfg.RankedWinPercent.val = v refreshStats() end,
+})
+
+StatBox:AddToggle("ELOToggle", {
+Text = "Ranked Elo",
+Default = false,
+Callback = function(v) Cfg.RankedElo.on = v refreshStats() end,
+})
+StatBox:AddInput("ELOInput", {
+Text = "Ranked Elo",
+Default = tostring(Cfg.RankedElo.val),
+Numeric = true,
+Finished = true,
+Callback = function(v)
+local n = tonumber(v) if n then Cfg.RankedElo.val = n refreshStats() end
+end,
+})
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Rank
+-- ═══════════════════════════════════════════════════════════════════════
+
+local RankBox = Spoofer:AddGroupbox({ Name = "Rank", Side = 2 })
+
+RankBox:AddToggle("RankToggle", {
+Text = "Rank Tier",
+Default = false,
+Callback = function(v) Cfg.RankTier.on = v end,
+})
+RankBox:AddDropdown("RankDrop", {
+Text = "Tier",
+Values = TIERS,
+Default = "Archnemesis",
+Multi = false,
+Callback = function(v) Cfg.RankTier.val = v end,
+})
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Leaderboard
+-- ═══════════════════════════════════════════════════════════════════════
+
+local LBBox = Spoofer:AddGroupbox({ Name = "Leaderboard", Side = 2 })
+
+LBBox:AddToggle("LBRankToggle", {
+Text = "Leaderboard Rank",
+Default = false,
+Callback = function(v) Cfg.LeaderboardRank.on = v refreshStats() end,
+})
+LBBox:AddInput("LBRankInput", {
+Text = "Leaderboard Rank",
+Default = tostring(Cfg.LeaderboardRank.val),
+Numeric = true,
+Finished = true,
+Callback = function(v)
+local n = tonumber(v) if n then Cfg.LeaderboardRank.val = n refreshStats() end
+end,
+})
+
+refreshStats()
+
+Players.PlayerAdded:Connect(function() task.wait(0.5) refreshStats() end)
+Players.PlayerRemoving:Connect(function(p) State.attrOriginal[p] = nil end)
