@@ -1410,9 +1410,11 @@ local SecretAttachRagebot = {
     WeaponType = "Primary",
     TargetMode = "Closest",
     MoveCharacter = false,
+    SilentAim = true,
     Connection = nil,
     AttachedUntil = 0,
     Target = nil,
+    NamecallHook = nil,
 }
 
 local SecretAttachDesync = {
