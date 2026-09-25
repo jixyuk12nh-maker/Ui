@@ -90,7 +90,7 @@ if not getgenv().__MinhoStartupHooks then
     local okEnv, renv = pcall(getrenv)
     local realSetmetatable = okEnv and renv and renv.setmetatable
     if hookfunction and realSetmetatable then
-        local oldSM = realSetMetatable
+        local oldSM = realSetmetatable
         pcall(hookfunction, realSetMetatable, newcclosure(function(T, MT)
             if MT and type(MT) == "table" and rawget(MT, "__mode") then
                 local m = rawget(MT, "__mode")
