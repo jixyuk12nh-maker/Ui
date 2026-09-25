@@ -1891,7 +1891,10 @@ local function SecretAttachTryShoot(target)
         local ok = pcall(function()
             remote:FireServer(objectId, SecretAttachEnum("StartShooting"), outer, nil)
         end)
-        if ok then return true end
+        if ok then
+            if mouse1click then pcall(mouse1click) end
+            return true
+        end
     end
 
     local aim = CFrame.lookAt(head.Position, head.Position + Vector3.new(0, 0, -1))
