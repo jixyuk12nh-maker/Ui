@@ -1,6 +1,9 @@
+--!nonstrict
 local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/Minho_Hub_Obsidian_UI.lua"
 ))()
+
+Library.ForceCheckboz = true
 
 local ThemeManager = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/ThemeManager.lua"
@@ -4711,7 +4714,7 @@ AnimationBox:AddSlider("AnimationSpeed", {
 local SettingsBox = Settings:AddGroupbox({ Name = "Keybinds", Side = 1 })
 
 SettingsBox:AddCheckbox("ShowKeybindsWindow", {
-    Text = "키바인드 창 표시",
+    Text = "Keybind",
     Default = false,
     Callback = function(Value)
         if Library.KeybindFrame then
