@@ -4789,7 +4789,7 @@ local MAPS = {
     "Westown", "Station", "Docks", "Random",
 }
 
-local TIERS = {
+local SPOOFER_TIERS = {
     "Unranked", "Bronze 1", "Bronze 2", "Bronze 3",
     "Silver 1", "Silver 2", "Silver 3",
     "Gold 1", "Gold 2", "Gold 3",
@@ -5680,7 +5680,7 @@ RankLBBox:AddToggle("RankToggle", {
 })
 RankLBBox:AddDropdown("RankDrop", {
     Text = "Tier",
-    Values = TIERS,
+    Values = SPOOFER_TIERS,
     Default = "Archnemesis",
     Multi = false,
     Callback = function(v) Cfg.RankTier.val = v end,
