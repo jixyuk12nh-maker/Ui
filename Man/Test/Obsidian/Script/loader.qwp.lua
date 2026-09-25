@@ -2,6 +2,12 @@ local Library = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/Minho_Hub_Obsidian_UI.lua"
 ))()
 
+if type(Library.Notify) ~= "function" then
+    Library.Notify = function(self, msg, dur)
+        warn("[Minho] " .. tostring(msg))
+    end
+end
+
 local ThemeManager = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/ThemeManager.lua"
 ))()
