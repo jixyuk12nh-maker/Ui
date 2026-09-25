@@ -4743,4 +4743,985 @@ LocalPlayer.AncestryChanged:Connect(function()
     end
 end)
 
+if setthreadidentity and getthreadidentity then
+    pcall(setthreadidentity, 8)
+end
+
+local State = {
+    device = nil,
+    deviceHook = nil,
+    attrOriginal = {},
+    dataHook = { spoofs = {}, restore = nil },
+    charEnabled = false,
+    charUserId = nil,
+    charApplied = nil,
+    charCache = {},
+    originalName = LocalPlayer.Name,
+    originalDisplayName = LocalPlayer.DisplayName,
+    partBackup = {},
+    accBackup = {},
+    playerDrop = nil,
+    charConn = nil,
+}
+
+local Cfg = {
+    Name = { on = false, val = "Minho" },
+    DisplayName = { on = false, val = "Minho" },
+    Winstreak = { on = false, val = 999 },
+    Level = { on = false, val = 999 },
+    CasualWins = { on = false, val = 9999 },
+    RankedWins = { on = false, val = 9999 },
+    CasualWinPercent = { on = false, val = 100 },
+    RankedWinPercent = { on = false, val = 100 },
+    RankedElo = { on = false, val = 3600 },
+    LeaderboardRank = { on = false, val = 1 },
+    FavoriteMap = { on = false, val = "Arena" },
+    NametagStatus = { on = false, val = "Prime" },
+    RankTier = { on = false, val = "Archnemesis" },
+    Influencer = { on = false },
+    RobloxEmployee = { on = false },
+    NosniyTeam = { on = false },
+}
+
+local MAPS = {
+    "Arena", "Duel Arena", "Rooftop", "Dojo", "Cave",
+    "Beach", "Temple", "Sky Islands", "Volcano",
+    "Westown", "Station", "Docks", "Random",
+}
+
+local TIERS = {
+    "Unranked", "Bronze 1", "Bronze 2", "Bronze 3",
+    "Silver 1", "Silver 2", "Silver 3",
+    "Gold 1", "Gold 2", "Gold 3",
+    "Platinum 1", "Platinum 2", "Platinum 3",
+    "Diamond 1", "Diamond 2", "Diamond 3",
+    "Onyx 1", "Onyx 2", "Onyx 3",
+    "Nemesis", "Archnemesis",
+}
+
+local TAGS = { "Prime", "Contraband" }
+
+local DEVICES = {
+    Computer = { KeyboardEnabled = true, MouseEnabled = true, TouchEnabled = false, GamepadEnabled = false, VREnabled = false },
+    Mobile = { KeyboardEnabled = false, MouseEnabled = false, TouchEnabled = true, GamepadEnabled = false, VREnabled = false },
+    Console = { KeyboardEnabled = false, MouseEnabled = false, TouchEnabled = false, GamepadEnabled = true, VREnabled = false },
+    VR = { KeyboardEnabled = false, MouseEnabled = false, TouchEnabled = false, GamepadEnabled = false, VREnabled = true },
+}
+
+local function applyDevice(kind)
+    if not hookmetamethod or not DEVICES[kind] then return false end
+    State.device = kind
+    if State.deviceHook then return true end
+    local old
+    old = hookmetamethod(game, "__index", function(self, key)
+        local cur = State.device
+        if cur then
+            local p = DEVICES[cur]
+            if self == VRService and key == "VREnabled" then return p.VREnabled end
+            if self == UserInputService and p[key] ~= nil then return p[key] end
+        end
+        if old then return old(self, key) end
+        return nil
+    end)
+    State.deviceHook = old
+    return true
+end
+
+local function attachAccessory(character, humanoid, accessory)
+    local handle = accessory:FindFirstChild("Handle")
+    if not handle then
+        accessory.Parent = character
+        return
+    end
+
+    handle.CanCollide = false
+    handle.Massless = true
+    handle.CanTouch = false
+    handle.CanQuery = false
+
+    local attachName = nil
+    for _, att in ipairs(handle:GetChildren()) do
+        if att:IsA("Attachment") then
+            attachName = att.Name
+            break
+        end
+    end
+
+    accessory.Parent = character
+
+    if attachName then
+        local targetAttachment = character:FindFirstChild(attachName, true)
+        if targetAttachment then
+            local targetPart = targetAttachment.Parent
+            handle.CFrame = targetAttachment.WorldCFrame
+
+            local weld = Instance.new("Weld")
+            weld.Part0 = targetPart
+            weld.Part1 = handle
+            local handleAtt = handle:FindFirstChildOfClass("Attachment")
+            weld.C0 = targetAttachment.CFrame
+            weld.C1 = handleAtt and handleAtt.CFrame or CFrame.new()
+            weld.Parent = handle
+        end
+    end
+end
+
+local function resolveTarget(input)
+    if not input or input == "" then return nil end
+
+    local numeric = tonumber(input)
+    if numeric then
+        local data = { id = numeric, name = "User" .. numeric, displayName = "User" .. numeric }
+        pcall(function()
+            local raw = game:HttpGet("https://users.roblox.com/v1/users/" .. tostring(numeric), true)
+            local dec = HttpService:JSONDecode(raw)
+            if type(dec) == "table" and dec.id then
+                data.name = dec.name or data.name
+                data.displayName = dec.displayName or dec.name or data.displayName
+            end
+        end)
+        return data
+    end
+
+    local ok, result = pcall(function()
+        local body = HttpService:JSONEncode({
+            usernames = { input },
+            excludeBannedUsers = false,
+        })
+        local response = game:HttpPost(
+            "https://users.roblox.com/v1/usernames/users",
+            body,
+            "application/json",
+            true
+        )
+        return HttpService:JSONDecode(response)
+    end)
+
+    if ok and result and result.data and result.data[1] then
+        local u = result.data[1]
+        return { id = u.id, name = u.name, displayName = u.displayName }
+    end
+
+    local ok2, result2 = pcall(function()
+        local url = "https://users.roblox.com/v1/users/search?keyword="
+            .. HttpService:UrlEncode(input) .. "&limit=10"
+        local raw = game:HttpGet(url, true)
+        return HttpService:JSONDecode(raw)
+    end)
+
+    if ok2 and result2 and result2.data then
+        for _, u in ipairs(result2.data) do
+            if u.name and u.name:lower() == input:lower() then
+                return { id = u.id, name = u.name, displayName = u.displayName }
+            end
+        end
+        if result2.data[1] then
+            local u = result2.data[1]
+            return { id = u.id, name = u.name, displayName = u.displayName }
+        end
+    end
+
+    return nil
+end
+
+local function getServerPlayerList()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(list, p.Name .. " (" .. tostring(p.UserId) .. ")")
+        end
+    end
+    if #list == 0 then
+        table.insert(list, "None")
+    end
+    return list
+end
+
+local function parseUserId(str)
+    if not str or str == "None" then return nil end
+    local id = string.match(str, "%((%d+)%)")
+    return id and tonumber(id) or nil
+end
+
+local R15_PARTS = {
+    "Head", "UpperTorso", "LowerTorso",
+    "LeftUpperArm", "LeftLowerArm", "LeftHand",
+    "RightUpperArm", "RightLowerArm", "RightHand",
+    "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+    "RightUpperLeg", "RightLowerLeg", "RightFoot",
+}
+
+local function backupCharacter(char)
+    State.partBackup = {}
+    State.accBackup = {}
+
+    for _, partName in ipairs(R15_PARTS) do
+        local part = char:FindFirstChild(partName)
+        if part and part:IsA("BasePart") then
+            State.partBackup[part] = {
+                MeshId = part:IsA("MeshPart") and part.MeshId or nil,
+                TextureID = part:IsA("MeshPart") and part.TextureID or nil,
+                Color = part.Color,
+                Material = part.Material,
+                Transparency = part.Transparency,
+                Size = part.Size,
+                Name = part.Name,
+            }
+        end
+    end
+
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Accessory") then
+            State.accBackup[child] = child:Clone()
+        elseif child:IsA("Shirt") or child:IsA("Pants") or child:IsA("ShirtGraphic") then
+            State.accBackup[child] = child:Clone()
+        end
+    end
+end
+
+local function restoreCharacter()
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    for part, data in pairs(State.partBackup) do
+        if part and part.Parent then
+            pcall(function()
+                if data.MeshId and part:IsA("MeshPart") then
+                    part.MeshId = data.MeshId
+                end
+                if data.TextureID and part:IsA("MeshPart") then
+                    part.TextureID = data.TextureID
+                end
+                part.Color = data.Color
+                part.Material = data.Material
+                part.Transparency = data.Transparency
+            end)
+        end
+    end
+
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Accessory") or child:IsA("Shirt") or child:IsA("Pants")
+            or child:IsA("ShirtGraphic") then
+            child:Destroy()
+        end
+    end
+    for _, clone in pairs(State.accBackup) do
+        pcall(function() clone:Clone().Parent = char end)
+    end
+
+    State.partBackup = {}
+    State.accBackup = {}
+end
+
+local function applyCharacterParts(userId)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    if not next(State.partBackup) then
+        backupCharacter(char)
+    end
+
+    local appearance = State.charCache[userId]
+    if not appearance then
+        local ok, result = pcall(function()
+            return Players:GetCharacterAppearanceAsync(userId)
+        end)
+        if not ok or not result then
+            Library:Notify("Avatar load failed: " .. userId, 3)
+            return
+        end
+        State.charCache[userId] = result
+        appearance = result
+    end
+
+    for _, partName in ipairs(R15_PARTS) do
+        local srcPart = appearance:FindFirstChild(partName)
+        local dstPart = char:FindFirstChild(partName)
+        if srcPart and dstPart then
+            if srcPart:IsA("MeshPart") and dstPart:IsA("MeshPart") then
+                if dstPart.MeshId ~= srcPart.MeshId then
+                    pcall(function() dstPart.MeshId = srcPart.MeshId end)
+                end
+                if dstPart.TextureID ~= srcPart.TextureID then
+                    pcall(function() dstPart.TextureID = srcPart.TextureID end)
+                end
+            elseif srcPart:IsA("BasePart") and dstPart:IsA("BasePart") then
+                if dstPart.Color ~= srcPart.Color then
+                    pcall(function() dstPart.Color = srcPart.Color end)
+                end
+                if dstPart.Material ~= srcPart.Material then
+                    pcall(function() dstPart.Material = srcPart.Material end)
+                end
+                if dstPart.Size ~= srcPart.Size then
+                    pcall(function() dstPart.Size = srcPart.Size end)
+                end
+            end
+        end
+    end
+
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Accessory") or child:IsA("Shirt") or child:IsA("Pants")
+            or child:IsA("ShirtGraphic") or child:IsA("BodyColors") then
+            child:Destroy()
+        end
+    end
+
+    for _, v in ipairs(appearance:GetChildren()) do
+        local clone = v:Clone()
+        if clone:IsA("Shirt") or clone:IsA("Pants")
+            or clone:IsA("ShirtGraphic") or clone:IsA("BodyColors") then
+            clone.Parent = char
+        elseif clone:IsA("Accessory") then
+            pcall(function() attachAccessory(char, humanoid, clone) end)
+        end
+    end
+
+    local head = char:FindFirstChild("Head")
+    if head then
+        local face = appearance:FindFirstChild("Head")
+        if face then
+            for _, dec in ipairs(face:GetChildren()) do
+                if dec:IsA("Decal") then
+                    local existingFace = head:FindFirstChild("face")
+                    if existingFace then
+                        if existingFace.Texture ~= dec.Texture then
+                            existingFace.Texture = dec.Texture
+                        end
+                    else
+                        local nf = Instance.new("Decal")
+                        nf.Name = "face"
+                        nf.Texture = dec.Texture
+                        nf.Parent = head
+                    end
+                    break
+                end
+            end
+        end
+    end
+end
+
+local function keepIdentitySafe()
+    if Cfg.Name.on then
+        pcall(function() LocalPlayer.Name = tostring(Cfg.Name.val) end)
+    end
+    if Cfg.DisplayName.on then
+        pcall(function() LocalPlayer.DisplayName = tostring(Cfg.DisplayName.val) end)
+    end
+end
+
+local function watchCharacter(char)
+    if State.charConn then
+        State.charConn:Disconnect()
+        State.charConn = nil
+    end
+
+    if not char then return end
+
+    local reapplyQueued = false
+    local function queueReapply()
+        if reapplyQueued then return end
+        reapplyQueued = true
+        task.delay(0.35, function()
+            reapplyQueued = false
+            if State.charEnabled and State.charApplied then
+                local c = LocalPlayer.Character
+                if c and c == char then
+                    applyCharacterParts(State.charApplied.id)
+                end
+            end
+        end)
+    end
+
+    State.charConn = char.ChildAdded:Connect(function(child)
+        if not State.charEnabled or not State.charApplied then return end
+        if child:IsA("Accessory") or child:IsA("Shirt") or child:IsA("Pants")
+            or child:IsA("ShirtGraphic") or child:IsA("BodyColors") then
+            queueReapply()
+        end
+    end)
+
+    for _, partName in ipairs(R15_PARTS) do
+        local part = char:FindFirstChild(partName)
+        if part and part:IsA("MeshPart") then
+            part:GetPropertyChangedSignal("MeshId"):Connect(function()
+                if not State.charEnabled or not State.charApplied then return end
+                local backup = State.partBackup[part]
+                if backup and backup.MeshId and part.MeshId ~= backup.MeshId then
+                    queueReapply()
+                end
+            end)
+            part:GetPropertyChangedSignal("TextureID"):Connect(function()
+                if not State.charEnabled or not State.charApplied then return end
+                local backup = State.partBackup[part]
+                if backup and backup.TextureID and part.TextureID ~= backup.TextureID then
+                    queueReapply()
+                end
+            end)
+        end
+    end
+end
+
+local function applyCharSpoof()
+    if not State.charEnabled or not State.charUserId then return end
+    task.spawn(function()
+        local userId = tonumber(State.charUserId)
+        if not userId then return end
+
+        local data = State.charCache["user_" .. userId]
+        if not data then
+            data = { id = userId, name = "User" .. userId, displayName = "User" .. userId }
+            pcall(function()
+                local raw = game:HttpGet("https://users.roblox.com/v1/users/" .. tostring(userId), true)
+                local dec = HttpService:JSONDecode(raw)
+                if type(dec) == "table" and dec.id then
+                    data = {
+                        id = dec.id,
+                        name = dec.name or ("User" .. userId),
+                        displayName = dec.displayName or dec.name or ("User" .. userId),
+                    }
+                end
+            end)
+            State.charCache["user_" .. userId] = data
+        end
+
+        State.charApplied = data
+        applyCharacterParts(userId)
+        watchCharacter(LocalPlayer.Character)
+        Library:Notify("Character swapped: " .. data.displayName .. " (" .. userId .. ")", 3)
+    end)
+end
+
+local function restoreCharSpoof()
+    if State.charConn then
+        State.charConn:Disconnect()
+        State.charConn = nil
+    end
+
+    State.charApplied = nil
+    restoreCharacter()
+
+    pcall(function()
+        LocalPlayer.Name = State.originalName
+        LocalPlayer.DisplayName = State.originalDisplayName
+    end)
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    if State.charConn then
+        State.charConn:Disconnect()
+        State.charConn = nil
+    end
+
+    task.wait(1.5)
+    if State.charEnabled and State.charApplied then
+        State.partBackup = {}
+        State.accBackup = {}
+        applyCharacterParts(State.charApplied.id)
+        watchCharacter(char)
+    end
+end)
+
+local ATTR_MAP = {
+    Level = "Level",
+    Winstreak = "StatisticDuelsWinStreak",
+    RankedElo = "DisplayELO",
+    NametagStatus = "PlayerStatus",
+}
+local BADGE_MAP = {
+    Influencer = { "IsInfluencer", true },
+    RobloxEmployee = { "IsRobloxEmployee", true },
+    NosniyTeam = { "GroupRank", 255 },
+}
+local DATA_MAP = {
+    Level = "Level",
+    Winstreak = "StatisticDuelsWinStreak",
+    CasualWins = "StatisticDuelsWon",
+    CasualWinPercent = "StatisticDuelsWinPercent",
+    RankedWins = "StatisticRankedDuelsPlayed",
+    RankedWinPercent = "StatisticRankedDuelsWinPercent",
+    RankedElo = "RankedCurrentELO",
+    FavoriteMap = "StatisticFavoriteMap",
+}
+
+local function rememberAttr(p, a)
+    State.attrOriginal[p] = State.attrOriginal[p] or {}
+    if State.attrOriginal[p][a] == nil then
+        State.attrOriginal[p][a] = p:GetAttribute(a)
+    end
+end
+
+local function restoreAttr(p, a)
+    if State.attrOriginal[p] and State.attrOriginal[p][a] ~= nil then
+        pcall(function() p:SetAttribute(a, State.attrOriginal[p][a]) end)
+        State.attrOriginal[p][a] = nil
+    end
+end
+
+local function getDataCtrl()
+    local s = LocalPlayer:FindFirstChild("PlayerScripts")
+    local c = s and s:FindFirstChild("Controllers")
+    local m = c and c:FindFirstChild("PlayerDataController")
+    if not m then return nil end
+    local ok, v = pcall(require, m)
+    return ok and v or nil
+end
+
+local function dataHookLoad()
+    local ctrl = getDataCtrl()
+    if not ctrl then return false end
+    local cur = rawget(ctrl, "CurrentData")
+    if not cur then return false end
+    local inner = rawget(cur, "Data")
+    if not inner then return false end
+    if State.dataHook.restore then
+        pcall(function()
+            rawset(State.dataHook.restore.cur, "Data", State.dataHook.restore.inner)
+        end)
+    end
+    local proxy = setmetatable({}, {
+        __index = function(_, key)
+            local fn = State.dataHook.spoofs[key]
+            if fn then return fn(inner[key]) end
+            return inner[key]
+        end,
+        __newindex = function(_, key, val) inner[key] = val end,
+        __len = function() return #inner end,
+    })
+    rawset(cur, "Data", proxy)
+    State.dataHook.restore = { cur = cur, inner = inner }
+    return true
+end
+
+local function refreshStats()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then
+            for k, a in pairs(ATTR_MAP) do
+                if Cfg[k] and Cfg[k].on then
+                    rememberAttr(p, a)
+                    if p:GetAttribute(a) ~= Cfg[k].val then
+                        pcall(function() p:SetAttribute(a, Cfg[k].val) end)
+                    end
+                else
+                    restoreAttr(p, a)
+                end
+            end
+            for k, spec in pairs(BADGE_MAP) do
+                if Cfg[k] and Cfg[k].on then
+                    rememberAttr(p, spec[1])
+                    if p:GetAttribute(spec[1]) ~= spec[2] then
+                        pcall(function() p:SetAttribute(spec[1], spec[2]) end)
+                    end
+                else
+                    restoreAttr(p, spec[1])
+                end
+            end
+        end
+    end
+    for k, field in pairs(DATA_MAP) do
+        local node = Cfg[k]
+        if node then
+            local val = node.val
+            if k == "CasualWinPercent" or k == "RankedWinPercent" then
+                val = (tonumber(val) or 0) / 100
+            end
+            State.dataHook.spoofs[field] = function(orig)
+                if node.on then return val end
+                return orig
+            end
+        else
+            State.dataHook.spoofs[field] = nil
+        end
+    end
+    dataHookLoad()
+end
+
+task.spawn(function()
+    while task.wait(0.5) do
+        refreshStats()
+    end
+end)
+
+local profileCache = { gui = nil, player = nil, headshot = nil, casual = nil, ranked = nil, bragging = nil }
+local profileRefreshAcc = 0
+
+local function refreshProfileCache()
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    local mainGui = pg and pg:FindFirstChild("MainGui")
+    local mainFrame = mainGui and mainGui:FindFirstChild("MainFrame")
+    local pages = mainFrame and mainFrame:FindFirstChild("Pages")
+    if not pages then
+        profileCache.gui = nil
+        return
+    end
+
+    local viewProfile = pages:FindFirstChild("ViewProfile")
+    local active = viewProfile and viewProfile:FindFirstChild("Active")
+    local player = active and active:FindFirstChild("Player")
+
+    profileCache.gui = pages
+    profileCache.player = player
+    profileCache.headshot = player and player:FindFirstChild("Headshot")
+    profileCache.casual = player and player:FindFirstChild("Casual")
+    profileCache.ranked = player and player:FindFirstChild("Ranked")
+    profileCache.bragging = player and player:FindFirstChild("Bragging")
+end
+
+RunService.Heartbeat:Connect(function(dt)
+    profileRefreshAcc += dt
+    if profileRefreshAcc < 0.2 then return end
+    profileRefreshAcc = 0
+
+    refreshProfileCache()
+    local player = profileCache.player
+    if not player then return end
+
+    local headshot = profileCache.headshot
+    local hsStreak = headshot and headshot:FindFirstChild("Streak")
+    local hsv = hsStreak and hsStreak:FindFirstChild("Value")
+    if hsv and Cfg.Winstreak.on then hsv.Text = tostring(Cfg.Winstreak.val) end
+
+    local dn = player:FindFirstChild("DisplayName")
+    if dn and Cfg.DisplayName.on then dn.Text = tostring(Cfg.DisplayName.val) end
+
+    local un = player:FindFirstChild("Username")
+    if un and Cfg.Name.on then un.Text = "@" .. tostring(Cfg.Name.val) end
+
+    local casual = profileCache.casual
+    if casual then
+        local wins = casual:FindFirstChild("Wins")
+        if wins and Cfg.CasualWins.on then wins.Text = tostring(Cfg.CasualWins.val) end
+        local wp = casual:FindFirstChild("WinPercent")
+        if wp and Cfg.CasualWinPercent.on then wp.Text = tostring(Cfg.CasualWinPercent.val) .. "%" end
+    end
+
+    local ranked = profileCache.ranked
+    if ranked then
+        local wins = ranked:FindFirstChild("Wins")
+        if wins and Cfg.RankedWins.on then wins.Text = tostring(Cfg.RankedWins.val) end
+        local wp = ranked:FindFirstChild("WinPercent")
+        if wp and Cfg.RankedWinPercent.on then wp.Text = tostring(Cfg.RankedWinPercent.val) .. "%" end
+    end
+
+    local bragging = profileCache.bragging
+    if bragging then
+        local streak = bragging:FindFirstChild("Streak")
+        local sv = streak and streak:FindFirstChild("Value")
+        if sv and Cfg.Winstreak.on then sv.Text = tostring(Cfg.Winstreak.val) end
+
+        local level = bragging:FindFirstChild("Level")
+        local lv = level and level:FindFirstChild("Value")
+        if lv and Cfg.Level.on then lv.Text = tostring(Cfg.Level.val) end
+
+        local rank = bragging:FindFirstChild("Rank")
+        local rt = rank and rank:FindFirstChild("Title")
+        if rt and Cfg.RankTier.on then rt.Text = tostring(Cfg.RankTier.val) end
+    end
+end)
+
+local IDStatBox = Spoofer:AddGroupbox({ Name = "Identity & Stats", Side = 1 })
+
+IDStatBox:AddToggle("NameToggle", {
+    Text = "Name",
+    Default = false,
+    Callback = function(v) Cfg.Name.on = v keepIdentitySafe() end,
+})
+IDStatBox:AddInput("NameInput", {
+    Text = "Name",
+    Default = Cfg.Name.val,
+    Finished = true,
+    Callback = function(v) Cfg.Name.val = v keepIdentitySafe() end,
+})
+
+IDStatBox:AddToggle("DNToggle", {
+    Text = "Display Name",
+    Default = false,
+    Callback = function(v) Cfg.DisplayName.on = v keepIdentitySafe() end,
+})
+IDStatBox:AddInput("DNInput", {
+    Text = "Display Name",
+    Default = Cfg.DisplayName.val,
+    Finished = true,
+    Callback = function(v) Cfg.DisplayName.val = v keepIdentitySafe() end,
+})
+
+IDStatBox:AddToggle("LevelToggle", {
+    Text = "Level",
+    Default = false,
+    Callback = function(v) Cfg.Level.on = v refreshStats() end,
+})
+IDStatBox:AddInput("LevelInput", {
+    Text = "Level",
+    Default = tostring(Cfg.Level.val),
+    Numeric = true,
+    Finished = true,
+    Callback = function(v)
+        local n = tonumber(v) if n then Cfg.Level.val = n refreshStats() end
+    end,
+})
+
+IDStatBox:AddToggle("WSToggle", {
+    Text = "Winstreak",
+    Default = false,
+    Callback = function(v) Cfg.Winstreak.on = v refreshStats() end,
+})
+IDStatBox:AddInput("WSInput", {
+    Text = "Winstreak",
+    Default = tostring(Cfg.Winstreak.val),
+    Numeric = true,
+    Finished = true,
+    Callback = function(v)
+        local n = tonumber(v) if n then Cfg.Winstreak.val = n refreshStats() end
+    end,
+})
+
+IDStatBox:AddToggle("CWinsToggle", {
+    Text = "Casual Wins",
+    Default = false,
+    Callback = function(v) Cfg.CasualWins.on = v refreshStats() end,
+})
+IDStatBox:AddInput("CWinsInput", {
+    Text = "Casual Wins",
+    Default = tostring(Cfg.CasualWins.val),
+    Numeric = true,
+    Finished = true,
+    Callback = function(v)
+        local n = tonumber(v) if n then Cfg.CasualWins.val = n refreshStats() end
+    end,
+})
+
+IDStatBox:AddToggle("CWPToggle", {
+    Text = "Casual Win Percent",
+    Default = false,
+    Callback = function(v) Cfg.CasualWinPercent.on = v refreshStats() end,
+})
+IDStatBox:AddSlider("CWPInput", {
+    Text = "Casual Win Percent",
+    Default = Cfg.CasualWinPercent.val,
+    Min = 0, Max = 100, Rounding = 1, Suffix = "%",
+    Callback = function(v) Cfg.CasualWinPercent.val = v refreshStats() end,
+})
+
+IDStatBox:AddToggle("RWinsToggle", {
+    Text = "Ranked Wins",
+    Default = false,
+    Callback = function(v) Cfg.RankedWins.on = v refreshStats() end,
+})
+IDStatBox:AddInput("RWinsInput", {
+    Text = "Ranked Wins",
+    Default = tostring(Cfg.RankedWins.val),
+    Numeric = true,
+    Finished = true,
+    Callback = function(v)
+        local n = tonumber(v) if n then Cfg.RankedWins.val = n refreshStats() end
+    end,
+})
+
+IDStatBox:AddToggle("RWPToggle", {
+    Text = "Ranked Win Percent",
+    Default = false,
+    Callback = function(v) Cfg.RankedWinPercent.on = v refreshStats() end,
+})
+IDStatBox:AddSlider("RWPInput", {
+    Text = "Ranked Win Percent",
+    Default = Cfg.RankedWinPercent.val,
+    Min = 0, Max = 100, Rounding = 1, Suffix = "%",
+    Callback = function(v) Cfg.RankedWinPercent.val = v refreshStats() end,
+})
+
+IDStatBox:AddToggle("ELOToggle", {
+    Text = "Ranked Elo",
+    Default = false,
+    Callback = function(v) Cfg.RankedElo.on = v refreshStats() end,
+})
+IDStatBox:AddInput("ELOInput", {
+    Text = "Ranked Elo",
+    Default = tostring(Cfg.RankedElo.val),
+    Numeric = true,
+    Finished = true,
+    Callback = function(v)
+        local n = tonumber(v) if n then Cfg.RankedElo.val = n refreshStats() end
+    end,
+})
+
+local ProfBox = Spoofer:AddGroupbox({ Name = "Profile", Side = 1 })
+
+ProfBox:AddToggle("FMToggle", {
+    Text = "Favorite Map",
+    Default = false,
+    Callback = function(v) Cfg.FavoriteMap.on = v refreshStats() end,
+})
+ProfBox:AddDropdown("FMDrop", {
+    Text = "Map",
+    Values = MAPS,
+    Default = "Arena",
+    Multi = false,
+    Callback = function(v) Cfg.FavoriteMap.val = v refreshStats() end,
+})
+
+ProfBox:AddToggle("NTToggle", {
+    Text = "Nametag Status",
+    Default = false,
+    Callback = function(v) Cfg.NametagStatus.on = v refreshStats() end,
+})
+ProfBox:AddDropdown("NTDrop", {
+    Text = "Status",
+    Values = TAGS,
+    Default = "Prime",
+    Multi = false,
+    Callback = function(v) Cfg.NametagStatus.val = v refreshStats() end,
+})
+
+local DeviceBox = Spoofer:AddGroupbox({ Name = "Device Spoof", Side = 1 })
+
+DeviceBox:AddDropdown("DeviceDrop", {
+    Text = "Spoof Device",
+    Values = { "Off", "Computer", "Mobile", "Console", "VR" },
+    Default = "Off",
+    Multi = false,
+    Callback = function(v)
+        if v == "Off" or v == nil then State.device = nil else applyDevice(v) end
+    end,
+})
+
+local CharBox = Spoofer:AddGroupbox({ Name = "Character Spoofer", Side = 2 })
+
+CharBox:AddToggle("CharSpoofEnable", {
+    Text = "Enable",
+    Default = false,
+    Callback = function(v)
+        State.charEnabled = v
+        if v then
+            applyCharSpoof()
+        else
+            restoreCharSpoof()
+            Library:Notify("Spoofer disabled", 2)
+        end
+    end,
+})
+
+CharBox:AddInput("CharSpoofTarget", {
+    Text = "Target (Username or UserId)",
+    Default = "",
+    Placeholder = "e.g. builderman or 1",
+    Finished = true,
+    Callback = function(v)
+        if not v or v == "" then return end
+        Library:Notify("Searching: " .. v, 2)
+        task.spawn(function()
+            local data = resolveTarget(v)
+            if data then
+                State.charUserId = data.id
+                Library:Notify("Found: " .. (data.displayName or data.name) .. " (" .. data.id .. ")", 3)
+                if State.charEnabled then applyCharSpoof() end
+            else
+                Library:Notify("User not found: " .. v, 3)
+            end
+        end)
+    end,
+})
+
+State.playerDrop = CharBox:AddDropdown("CharTargetDrop", {
+    Text = "Pick Server Player",
+    Values = getServerPlayerList(),
+    Default = nil,
+    Multi = false,
+    Callback = function(v)
+        local id = parseUserId(v)
+        if id then
+            State.charUserId = id
+            if State.charEnabled then applyCharSpoof() end
+        end
+    end,
+})
+
+CharBox:AddButton("RefreshPlayerList", {
+    Text = "Refresh Server Player List",
+    Callback = function()
+        if State.playerDrop then
+            local list = getServerPlayerList()
+            if State.playerDrop.Refresh then
+                pcall(function() State.playerDrop:Refresh(list) end)
+            elseif State.playerDrop.SetValues then
+                pcall(function() State.playerDrop:SetValues(list) end)
+            else
+                Library:Notify("Dropdown refresh unsupported - check library", 3)
+            end
+        end
+    end,
+})
+
+CharBox:AddButton("ApplyCharSpoof", {
+    Text = "Apply Now",
+    Callback = function() applyCharSpoof() end,
+})
+
+Players.PlayerAdded:Connect(function()
+    task.wait(0.5)
+    if State.playerDrop and State.playerDrop.Refresh then
+        pcall(function() State.playerDrop:Refresh(getServerPlayerList()) end)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.5)
+    if State.playerDrop and State.playerDrop.Refresh then
+        pcall(function() State.playerDrop:Refresh(getServerPlayerList()) end)
+    end
+end)
+
+local RankLBBox = Spoofer:AddGroupbox({ Name = "Rank & Leaderboard", Side = 2 })
+
+RankLBBox:AddToggle("RankToggle", {
+    Text = "Rank Tier",
+    Default = false,
+    Callback = function(v) Cfg.RankTier.on = v end,
+})
+RankLBBox:AddDropdown("RankDrop", {
+    Text = "Tier",
+    Values = TIERS,
+    Default = "Archnemesis",
+    Multi = false,
+    Callback = function(v) Cfg.RankTier.val = v end,
+})
+
+RankLBBox:AddToggle("LBRankToggle", {
+    Text = "Leaderboard Rank",
+    Default = false,
+    Callback = function(v) Cfg.LeaderboardRank.on = v refreshStats() end,
+})
+RankLBBox:AddInput("LBRankInput", {
+    Text = "Leaderboard Rank",
+    Default = tostring(Cfg.LeaderboardRank.val),
+    Numeric = true,
+    Finished = true,
+    Callback = function(v)
+        local n = tonumber(v) if n then Cfg.LeaderboardRank.val = n refreshStats() end
+    end,
+})
+
+local BadgeBox = Spoofer:AddGroupbox({ Name = "Badges", Side = 2 })
+
+BadgeBox:AddToggle("InfToggle", {
+    Text = "Influencer",
+    Default = false,
+    Callback = function(v) Cfg.Influencer.on = v refreshStats() end,
+})
+BadgeBox:AddToggle("RobToggle", {
+    Text = "Roblox Employee",
+    Default = false,
+    Callback = function(v) Cfg.RobloxEmployee.on = v refreshStats() end,
+})
+BadgeBox:AddToggle("NosToggle", {
+    Text = "Nosniy Team",
+    Default = false,
+    Callback = function(v) Cfg.NosniyTeam.on = v refreshStats() end,
+})
+
+refreshStats()
+
+Players.PlayerAdded:Connect(function() task.wait(0.5) refreshStats() end)
+Players.PlayerRemoving:Connect(function(p) State.attrOriginal[p] = nil end)
+
 return true
