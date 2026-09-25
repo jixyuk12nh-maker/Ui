@@ -1,10 +1,6 @@
-local Library = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/Minho_Hub_Obsidian_UI.lua"
-))()
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/Minho_Hub_Obsidian_UI.lua"))()
 
-local ThemeManager = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/ThemeManager.lua"
-))()
+local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/ThemeManager.lua"))()
 ThemeManager:SetLibrary(Library)
 
 local SaveManagerURL = "https://raw.githubusercontent.com/jixyuk12nh-maker/Ui/refs/heads/main/SaveManager.lua"
