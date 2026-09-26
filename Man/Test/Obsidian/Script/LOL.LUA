@@ -75,6 +75,8 @@ local State = {
 
     _lastInputValue = "",
     _inputDebounce = nil,
+
+    profileHideEnabled = true,
 }
 
 getgenv().SpooferState = State
@@ -565,6 +567,56 @@ local function getLobbyAvatarPaths()
     }
 end
 
+local function hideSpoofedSlots()
+    if not State.profileHideEnabled then return end
+    if not isSpoofActive() then return end
+
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not pg then return end
+    local mf = pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("MainFrame")
+    if not mf then return end
+
+    local MY_ID = tostring(LocalPlayer.UserId)
+    local MY_NAME = LocalPlayer.Name
+    local MY_DISPLAY = LocalPlayer.DisplayName
+
+    local function check(obj)
+        if not obj or not obj.Parent then return end
+        if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+            local cur = obj.Image or ""
+            if string.find(cur, MY_ID, 1, true) then
+                obj.ImageTransparency = 1
+            end
+        elseif obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local txt = obj.Text or ""
+            if txt == MY_NAME or txt == MY_DISPLAY or txt == "@" .. MY_NAME then
+                obj.TextTransparency = 1
+            end
+        end
+    end
+
+    local pages = mf:FindFirstChild("Pages")
+    local vp = pages and pages:FindFirstChild("ViewProfile")
+    local active = vp and vp:FindFirstChild("Active")
+    if active then
+        for _, v in ipairs(active:GetDescendants()) do check(v) end
+    end
+
+    local targets = {
+        pages and pages:FindFirstChild("SideParty"),
+        mf:FindFirstChild("Lobby") and mf.Lobby:FindFirstChild("Party"),
+        mf:FindFirstChild("Lobby") and mf.Lobby:FindFirstChild("Requests"),
+        mf:FindFirstChild("Queue"),
+        mf:FindFirstChild("DuelInterfaces"),
+        pg:FindFirstChild("PlayerList"),
+    }
+    for _, t in ipairs(targets) do
+        if t then
+            for _, v in ipairs(t:GetDescendants()) do check(v) end
+        end
+    end
+end
+
 local function spoofProfileUI()
     local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
     if not pg then return end
@@ -583,63 +635,152 @@ local function spoofProfileUI()
             local name = v.Name
             local txt = v.Text or ""
 
-            if Cfg.Level.on and (name == "Level" or name == "LevelValue" or name == "Value") then
-                if tonumber(txt) or txt == "" or string.match(txt, "^%d+$") then
+            if name == "Level" or name == "LevelValue" then
+                if Cfg.Level.on then
                     spoofTextSlot(v, tostring(Cfg.Level.val))
+                else
+                    releaseHeld(v)
                 end
             end
 
-            if Cfg.Winstreak.on and (string.find(name, "Streak", 1, true) or string.find(name, "Winstreak", 1, true)) then
-                spoofTextSlot(v, tostring(Cfg.Winstreak.val))
+            if string.find(name, "Streak", 1, true) or string.find(name, "Winstreak", 1, true) or string.find(name, "WinStreak", 1, true) then
+                if Cfg.Winstreak.on then
+                    spoofTextSlot(v, tostring(Cfg.Winstreak.val))
+                else
+                    releaseHeld(v)
+                end
             end
 
-            if Cfg.CasualWins.on and (name == "Wins" or name == "CasualWins" or name == "DuelsWon") then
-                spoofTextSlot(v, tostring(Cfg.CasualWins.val))
+            if name == "Wins" or name == "CasualWins" or name == "DuelsWon" then
+                if Cfg.CasualWins.on then
+                    spoofTextSlot(v, tostring(Cfg.CasualWins.val))
+                else
+                    releaseHeld(v)
+                end
             end
 
-            if Cfg.CasualWinPercent.on and (name == "WinPercent" or name == "WinRate" or name == "Percent") then
-                spoofTextSlot(v, tostring(Cfg.CasualWinPercent.val) .. "%")
+            if name == "WinPercent" or name == "WinRate" or name == "Percent" then
+                if Cfg.CasualWinPercent.on then
+                    spoofTextSlot(v, tostring(Cfg.CasualWinPercent.val) .. "%")
+                else
+                    releaseHeld(v)
+                end
             end
 
-            if Cfg.RankedWins.on and (name == "RankedWins" or string.find(name, "RankedWon", 1, true)) then
-                spoofTextSlot(v, tostring(Cfg.RankedWins.val))
+            if name == "RankedWins" or string.find(name, "RankedWon", 1, true) then
+                if Cfg.RankedWins.on then
+                    spoofTextSlot(v, tostring(Cfg.RankedWins.val))
+                else
+                    releaseHeld(v)
+                end
             end
 
-            if Cfg.RankedWinPercent.on and string.find(name, "Ranked", 1, true) and (name == "WinPercent" or name == "WinRate") then
-                spoofTextSlot(v, tostring(Cfg.RankedWinPercent.val) .. "%")
+            if string.find(name, "Ranked", 1, true) and (name == "WinPercent" or name == "WinRate") then
+                if Cfg.RankedWinPercent.on then
+                    spoofTextSlot(v, tostring(Cfg.RankedWinPercent.val) .. "%")
+                else
+                    releaseHeld(v)
+                end
             end
 
-            if Cfg.RankedElo.on and (name == "ELO" or name == "Elo" or name == "DisplayELO" or name == "Rating") then
-                spoofTextSlot(v, tostring(Cfg.RankedElo.val))
+            if name == "ELO" or name == "Elo" or name == "DisplayELO" or name == "Rating" then
+                if Cfg.RankedElo.on then
+                    spoofTextSlot(v, tostring(Cfg.RankedElo.val))
+                else
+                    releaseHeld(v)
+                end
             end
 
-            if Cfg.RankTier.on and (name == "Rank" or name == "RankTier" or name == "Tier" or name == "RankName") then
-                spoofTextSlot(v, Cfg.RankTier.val)
+            if name == "Rank" or name == "RankTier" or name == "Tier" or name == "RankName" then
+                if Cfg.RankTier.on then
+                    spoofTextSlot(v, Cfg.RankTier.val)
+                else
+                    releaseHeld(v)
+                end
             end
 
-            if Cfg.FavoriteMap.on and (name == "Map" or name == "FavoriteMap" or string.find(name, "Map", 1, true)) then
-                if txt ~= "" then spoofTextSlot(v, Cfg.FavoriteMap.val) end
+            if name == "Map" or name == "FavoriteMap" then
+                if Cfg.FavoriteMap.on and txt ~= "" then
+                    spoofTextSlot(v, Cfg.FavoriteMap.val)
+                else
+                    releaseHeld(v)
+                end
             end
 
-            if Cfg.NametagStatus.on and (name == "Status" or name == "Tag" or name == "NametagStatus") then
-                spoofTextSlot(v, Cfg.NametagStatus.val)
+            if name == "Status" or name == "Tag" or name == "NametagStatus" then
+                if Cfg.NametagStatus.on then
+                    spoofTextSlot(v, Cfg.NametagStatus.val)
+                else
+                    releaseHeld(v)
+                end
             end
         end
     end
 
-    local badges = player:FindFirstChild("Badges") or player:FindFirstChild("Tags")
-    if badges then
-        for _, b in ipairs(badges:GetDescendants()) do
+    local MY_NAME = LocalPlayer.Name
+    local MY_DISPLAY = LocalPlayer.DisplayName
+
+    local function isMyBadgeContainer(c)
+        local p = c
+        local depth = 0
+        while p and depth < 8 do
+            if p.Name == "Player" or p.Name == "ViewProfile" or p.Name == "Active" then
+                return true
+            end
+            p = p.Parent
+            depth = depth + 1
+        end
+        return false
+    end
+
+    local badgeContainers = {}
+    local playerNode = active:FindFirstChild("Player")
+    if playerNode then
+        table.insert(badgeContainers, playerNode)
+        for _, c in ipairs(playerNode:GetDescendants()) do
+            if (c:IsA("Frame") or c:IsA("Folder")) and isMyBadgeContainer(c) then
+                table.insert(badgeContainers, c)
+            end
+        end
+    end
+
+    for _, container in ipairs(badgeContainers) do
+        for _, b in ipairs(container:GetDescendants()) do
             if b:IsA("ImageLabel") or b:IsA("ImageButton") then
                 local n = string.lower(b.Name)
-                if Cfg.Influencer.on and string.find(n, "influencer", 1, true) then
-                    b.Visible = true
-                end
-                if Cfg.RobloxEmployee.on and string.find(n, "employee", 1, true) then
-                    b.Visible = true
-                end
-                if Cfg.NosniyTeam.on and (string.find(n, "nosniy", 1, true) or string.find(n, "team", 1, true)) then
-                    b.Visible = true
+                local isBadge =
+                    string.find(n, "influencer", 1, true)
+                    or string.find(n, "employee", 1, true)
+                    or string.find(n, "roblox", 1, true)
+                    or string.find(n, "nosniy", 1, true)
+                    or string.find(n, "team", 1, true)
+                    or string.find(n, "verified", 1, true)
+                    or string.find(n, "badge", 1, true)
+                    or string.find(n, "tag", 1, true)
+                    or string.find(n, "status", 1, true)
+
+                if isBadge then
+                    if b:GetAttribute("_OrigVisible") == nil then
+                        b:SetAttribute("_OrigVisible", b.Visible)
+                    end
+
+                    local wantOn = false
+                    if Cfg.Influencer.on and string.find(n, "influencer", 1, true) then
+                        wantOn = true
+                    elseif Cfg.RobloxEmployee.on and (string.find(n, "employee", 1, true) or string.find(n, "roblox", 1, true)) then
+                        wantOn = true
+                    elseif Cfg.NosniyTeam.on and (string.find(n, "nosniy", 1, true) or string.find(n, "team", 1, true)) then
+                        wantOn = true
+                    end
+
+                    if wantOn then
+                        b.Visible = true
+                    else
+                        local orig = b:GetAttribute("_OrigVisible")
+                        if orig ~= nil then
+                            b.Visible = orig
+                        end
+                    end
                 end
             end
         end
@@ -658,7 +799,11 @@ local function spoofStats()
             end
 
             if Cfg.Level.on then safeSet("Level", Cfg.Level.val) end
-            if Cfg.Winstreak.on then safeSet("StatisticDuelsWinStreak", Cfg.Winstreak.val) end
+            if Cfg.Winstreak.on then
+                safeSet("StatisticDuelsWinStreak", Cfg.Winstreak.val)
+                safeSet("DuelsWinStreak", Cfg.Winstreak.val)
+                safeSet("WinStreak", Cfg.Winstreak.val)
+            end
             if Cfg.CasualWins.on then safeSet("StatisticDuelsWon", Cfg.CasualWins.val) end
             if Cfg.CasualWinPercent.on then safeSet("StatisticDuelsWinPercent", Cfg.CasualWinPercent.val / 100) end
             if Cfg.RankedWins.on then safeSet("StatisticRankedDuelsWon", Cfg.RankedWins.val) end
@@ -1651,6 +1796,10 @@ SpoofTrove:Add(RunService.Heartbeat:Connect(function(dt)
     end
 end))
 
+SpoofTrove:Add(RunService.Heartbeat:Connect(function()
+    pcall(hideSpoofedSlots)
+end))
+
 local identityAcc = 0
 SpoofTrove:Add(RunService.Heartbeat:Connect(function(dt)
     identityAcc = identityAcc + dt
@@ -1786,6 +1935,33 @@ local BadgeBox = Spoofer:AddGroupbox({ Name = "Badges", Side = 1 })
 BadgeBox:AddToggle("InfToggle", { Text = "Influencer", Default = false, Callback = function(v) Cfg.Influencer.on = v spoofStats() end })
 BadgeBox:AddToggle("RobToggle", { Text = "Roblox Employee", Default = false, Callback = function(v) Cfg.RobloxEmployee.on = v spoofStats() end })
 BadgeBox:AddToggle("NosToggle", { Text = "Nosniy Team", Default = false, Callback = function(v) Cfg.NosniyTeam.on = v spoofStats() end })
+
+local HideBox = Spoofer:AddGroupbox({ Name = "Hide", Side = 1 })
+HideBox:AddToggle("HideSpoofedToggle", {
+    Text = "Hide Spoofed Slots",
+    Default = true,
+    Callback = function(v)
+        State.profileHideEnabled = v
+        if not v and isSpoofActive() then
+            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if pg then
+                for _, obj in ipairs(pg:GetDescendants()) do
+                    if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+                        if obj:GetAttribute("_OrigImgTransparency") ~= nil then
+                            obj.ImageTransparency = obj:GetAttribute("_OrigImgTransparency")
+                            obj:SetAttribute("_OrigImgTransparency", nil)
+                        end
+                    elseif obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                        if obj:GetAttribute("_OrigTextTransparency") ~= nil then
+                            obj.TextTransparency = obj:GetAttribute("_OrigTextTransparency")
+                            obj:SetAttribute("_OrigTextTransparency", nil)
+                        end
+                    end
+                end
+            end
+        end
+    end,
+})
 
 if Library and Library.OnUnload then
     Library:OnUnload(function()
