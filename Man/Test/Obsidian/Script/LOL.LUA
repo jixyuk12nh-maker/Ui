@@ -18,7 +18,7 @@ local Window = Library:CreateWindow({
 local Spoofer = Window:AddTab("Spoofer")
 
 -- ============================================================
--- Trove
+-- Trove (리소스 관리)
 -- ============================================================
 local Trove = {}
 Trove.__index = Trove
@@ -39,7 +39,7 @@ end
 local SpoofTrove = Trove.new()
 
 -- ============================================================
--- 컨트롤러
+-- 컨트롤러 접근
 -- ============================================================
 local PlayerScripts = LocalPlayer:WaitForChild("PlayerScripts", 10)
 local Controllers = PlayerScripts:WaitForChild("Controllers", 10)
@@ -103,7 +103,6 @@ local Cfg = {
     FavoriteMap = { on = false, val = "Arena" },
     NametagStatus = { on = false, val = "Prime" },
     RankTier = { on = false, val = "Archnemesis" },
-    AutoRankFromELO = { on = true },
     Influencer = { on = false },
     RobloxEmployee = { on = false },
     NosniyTeam = { on = false },
@@ -122,40 +121,32 @@ local MAPS = {
 local TIERS = {"Unranked","Bronze 1","Bronze 2","Bronze 3","Silver 1","Silver 2","Silver 3","Gold 1","Gold 2","Gold 3","Platinum 1","Platinum 2","Platinum 3","Diamond 1","Diamond 2","Diamond 3","Onyx 1","Onyx 2","Onyx 3","Nemesis","Archnemesis"}
 local TAGS = {"Prime","Contraband"}
 
--- ★ ELO → 랭크 자동 매핑
-local ELO_TO_TIER = {
-    {min = 0,     max = 0,      tier = "Unranked"},
-    {min = 1,     max = 299,    tier = "Bronze 1"},
-    {min = 300,   max = 449,    tier = "Bronze 2"},
-    {min = 450,   max = 599,    tier = "Bronze 3"},
-    {min = 600,   max = 799,    tier = "Silver 1"},
-    {min = 800,   max = 999,    tier = "Silver 2"},
-    {min = 1000,  max = 1199,   tier = "Silver 3"},
-    {min = 1200,  max = 1399,   tier = "Gold 1"},
-    {min = 1400,  max = 1599,   tier = "Gold 2"},
-    {min = 1600,  max = 1799,   tier = "Gold 3"},
-    {min = 1800,  max = 1999,   tier = "Platinum 1"},
-    {min = 2000,  max = 2199,   tier = "Platinum 2"},
-    {min = 2200,  max = 2399,   tier = "Platinum 3"},
-    {min = 2400,  max = 2599,   tier = "Diamond 1"},
-    {min = 2600,  max = 2799,   tier = "Diamond 2"},
-    {min = 2800,  max = 2999,   tier = "Diamond 3"},
-    {min = 3000,  max = 3199,   tier = "Onyx 1"},
-    {min = 3200,  max = 3399,   tier = "Onyx 2"},
-    {min = 3400,  max = 3599,   tier = "Onyx 3"},
-    {min = 3600,  max = 3999,   tier = "Nemesis"},
-    {min = 4000,  max = 999999, tier = "Archnemesis"},
+-- ============================================================
+-- ★ 랭크 아이콘 매핑 (스캔 파일에서 확인된 에셋 ID)
+-- ============================================================
+local RANK_ICONS = {
+    ["Unranked"]     = "rbxassetid://111599878354131",
+    ["Bronze 1"]     = "rbxassetid://111599878354131",
+    ["Bronze 2"]     = "rbxassetid://111599878354131",
+    ["Bronze 3"]     = "rbxassetid://111599878354131",
+    ["Silver 1"]     = "rbxassetid://82834564754747",
+    ["Silver 2"]     = "rbxassetid://82834564754747",
+    ["Silver 3"]     = "rbxassetid://82834564754747",
+    ["Gold 1"]       = "rbxassetid://80716950169934",
+    ["Gold 2"]       = "rbxassetid://80716950169934",
+    ["Gold 3"]       = "rbxassetid://80716950169934",
+    ["Platinum 1"]   = "rbxassetid://131795064007344",
+    ["Platinum 2"]   = "rbxassetid://131795064007344",
+    ["Platinum 3"]   = "rbxassetid://131795064007344",
+    ["Diamond 1"]    = "rbxassetid://131795064007344",
+    ["Diamond 2"]    = "rbxassetid://131795064007344",
+    ["Diamond 3"]    = "rbxassetid://131795064007344",
+    ["Onyx 1"]       = "rbxassetid://114166096331502",
+    ["Onyx 2"]       = "rbxassetid://114166096331502",
+    ["Onyx 3"]       = "rbxassetid://114166096331502",
+    ["Nemesis"]      = "rbxassetid://133903971285645",
+    ["Archnemesis"]  = "rbxassetid://134520747948636",
 }
-
-local function eloToTier(elo)
-    elo = tonumber(elo) or 0
-    for _, entry in ipairs(ELO_TO_TIER) do
-        if elo >= entry.min and elo <= entry.max then
-            return entry.tier
-        end
-    end
-    return "Unranked"
-end
 
 local function isSpoofActive()
     return State.charEnabled == true
@@ -168,7 +159,7 @@ local function anyTextSpoofOn()
 end
 
 -- ============================================================
--- held
+-- held: obj -> RBXScriptConnection (잠금 연결)
 -- ============================================================
 local held = setmetatable({}, { __mode = "k" })
 
@@ -230,9 +221,6 @@ local function releaseAllHeld()
     held = setmetatable({}, { __mode = "k" })
 end
 
--- ============================================================
--- 투명화 / 표시 헬퍼
--- ============================================================
 local function hideSlotNow(obj)
     if not obj or not obj.Parent then return end
     if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
@@ -261,9 +249,6 @@ local function showSlotNow(obj)
     end
 end
 
--- ============================================================
--- 텍스트 잠금
--- ============================================================
 local function lockText(label, value)
     if not label or not label:IsA("TextLabel") then return end
 
@@ -283,9 +268,6 @@ local function lockText(label, value)
     end)
 end
 
--- ============================================================
--- 이미지 잠금
--- ============================================================
 local function lockImage(img, value)
     if not img or not (img:IsA("ImageLabel") or img:IsA("ImageButton")) then return end
 
@@ -324,9 +306,6 @@ local function lockImage(img, value)
     end)
 end
 
--- ============================================================
--- 슬롯 스푸핑 헬퍼
--- ============================================================
 local function spoofImageSlot(obj, url)
     if not obj or not (obj:IsA("ImageLabel") or obj:IsA("ImageButton")) then return end
     hideSlotNow(obj)
@@ -344,98 +323,57 @@ local function spoofTextSlot(obj, value)
     end)
 end
 
--- ============================================================
--- 슬롯 판별
--- ============================================================
 local SLOT_PARENT_NAMES = {
-    ViewProfile = true,
-    Player = true,
-    SideParty = true,
-    Party = true,
-    PartyMemberSlot = true,
-    LobbyButtonSlot = true,
-    JoinQueuePadPlayerSlot = true,
-    JoinQueuePadSlot = true,
-    LocalQueuePlayerSlot = true,
-    TeammateSlot = true,
-    Career = true,
-    DuelScoresTeamSlot = true,
-    Teammates = true,
-    QueuePadBoardGui = true,
-    PartyDisplay = true,
-    JoinQueuePadTeamSlot = true,
-    BaseMatchmakingQueueSlot = true,
-    PartyInviteSlot = true,
+    ViewProfile = true, Player = true, SideParty = true, Party = true,
+    PartyMemberSlot = true, LobbyButtonSlot = true,
+    JoinQueuePadPlayerSlot = true, JoinQueuePadSlot = true,
+    LocalQueuePlayerSlot = true, TeammateSlot = true, Career = true,
+    DuelScoresTeamSlot = true, Teammates = true, QueuePadBoardGui = true,
+    PartyDisplay = true, JoinQueuePadTeamSlot = true,
+    BaseMatchmakingQueueSlot = true, PartyInviteSlot = true,
 }
 
 local IMAGE_SLOT_NAMES = {
-    Headshot = true,
-    Icon = true,
-    PlayerIcon = true,
-    Avatar = true,
-    Portrait = true,
+    Headshot = true, Icon = true, PlayerIcon = true, Avatar = true, Portrait = true,
 }
 
 local TEXT_SLOT_NAMES = {
-    DisplayName = true,
-    Username = true,
-    Player = true,
+    DisplayName = true, Username = true, Player = true,
 }
 
 local function isMyImageSlot(img)
-    if not img or not (img:IsA("ImageLabel") or img:IsA("ImageButton")) then
-        return false
-    end
-
+    if not img or not (img:IsA("ImageLabel") or img:IsA("ImageButton")) then return false end
     local cur = img.Image or ""
-    if string.find(cur, tostring(LocalPlayer.UserId), 1, true) then
-        return true
-    end
-
+    if string.find(cur, tostring(LocalPlayer.UserId), 1, true) then return true end
     if IMAGE_SLOT_NAMES[img.Name] then
         local p = img.Parent
         local depth = 0
         while p and depth < 8 do
-            if SLOT_PARENT_NAMES[p.Name] then
-                return true
-            end
+            if SLOT_PARENT_NAMES[p.Name] then return true end
             p = p.Parent
             depth = depth + 1
         end
     end
-
     return false
 end
 
 local function isMyTextSlot(lbl)
     if not lbl or not lbl:IsA("TextLabel") then return false end
-
     local txt = lbl.Text or ""
-    if txt == LocalPlayer.Name or txt == LocalPlayer.DisplayName then
-        return true
-    end
-    if txt == "@" .. LocalPlayer.Name then
-        return true
-    end
-
+    if txt == LocalPlayer.Name or txt == LocalPlayer.DisplayName then return true end
+    if txt == "@" .. LocalPlayer.Name then return true end
     if TEXT_SLOT_NAMES[lbl.Name] then
         local p = lbl.Parent
         local depth = 0
         while p and depth < 8 do
-            if SLOT_PARENT_NAMES[p.Name] then
-                return true
-            end
+            if SLOT_PARENT_NAMES[p.Name] then return true end
             p = p.Parent
             depth = depth + 1
         end
     end
-
     return false
 end
 
--- ============================================================
--- 유틸
--- ============================================================
 local function getUserIdFromName(username)
     if not username or username == "" then return nil end
     local ok, result = pcall(function()
@@ -547,9 +485,6 @@ local function fastApplyParts(char, app)
     end
 end
 
--- ============================================================
--- 로비 아바타 경로
--- ============================================================
 local function getLobbyAvatarPaths()
     local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
     local mf = pg and pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("MainFrame")
@@ -637,7 +572,139 @@ local function getLobbyAvatarPaths()
 end
 
 -- ============================================================
--- ★ 통계 스푸핑 (승/패, 승률 자동, ELO→랭크 자동)
+-- ★★★ 프로필 UI 라벨 강제 조작 (핵심 추가)
+-- ============================================================
+local function spoofProfileUI()
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not pg then return end
+    local mf = pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("MainFrame")
+    if not mf then return end
+
+    -- ★ 1) ViewProfile 페이지
+    local pages = mf:FindFirstChild("Pages")
+    local vp = pages and pages:FindFirstChild("ViewProfile")
+    local active = vp and vp:FindFirstChild("Active")
+    local player = active and active:FindFirstChild("Player")
+    if player then
+        -- 디플닉
+        if Cfg.DisplayName.on then
+            local dn = player:FindFirstChild("DisplayName")
+            if dn then lockText(dn, tostring(Cfg.DisplayName.val)) end
+        end
+        -- 진짜닉
+        if Cfg.Name.on then
+            local un = player:FindFirstChild("Username")
+            if un then lockText(un, "@" .. tostring(Cfg.Name.val)) end
+        end
+
+        -- Casual 섹션 (승 / 승률)
+        local casual = player:FindFirstChild("Casual")
+        if casual then
+            if Cfg.CasualWins.on then
+                local w = casual:FindFirstChild("Wins")
+                if w then lockText(w, tostring(Cfg.CasualWins.val)) end
+            end
+            if Cfg.CasualWinPercent.on then
+                local wp = casual:FindFirstChild("WinPercent")
+                if wp then lockText(wp, string.format("%.1f%%", Cfg.CasualWinPercent.val)) end
+            end
+        end
+
+        -- Ranked 섹션
+        local ranked = player:FindFirstChild("Ranked")
+        if ranked then
+            if Cfg.RankedWins.on then
+                local w = ranked:FindFirstChild("Wins")
+                if w then lockText(w, tostring(Cfg.RankedWins.val)) end
+            end
+            if Cfg.RankedWinPercent.on then
+                local wp = ranked:FindFirstChild("WinPercent")
+                if wp then lockText(wp, string.format("%.1f%%", Cfg.RankedWinPercent.val)) end
+            end
+        end
+
+        -- ★ Bragging 섹션 (Streak, Level, Rank)
+        local bragging = player:FindFirstChild("Bragging")
+        if bragging then
+            -- Streak
+            if Cfg.Winstreak.on then
+                local streak = bragging:FindFirstChild("Streak")
+                local sv = streak and streak:FindFirstChild("Value")
+                if sv then lockText(sv, tostring(Cfg.Winstreak.val)) end
+            end
+            -- Level
+            if Cfg.Level.on then
+                local lvl = bragging:FindFirstChild("Level")
+                local lv = lvl and lvl:FindFirstChild("Value")
+                if lv then lockText(lv, tostring(Cfg.Level.val)) end
+            end
+            -- ★ Rank (이름 + 아이콘)
+            if Cfg.RankTier.on then
+                local rank = bragging:FindFirstChild("Rank")
+                if rank and rank:IsA("TextLabel") then
+                    lockText(rank, Cfg.RankTier.val)
+                end
+                -- 랭크 아이콘
+                local container = rank and rank:FindFirstChild("Container")
+                local rankIcon = container and container:FindFirstChild("RankIcon")
+                local icon = rankIcon and rankIcon:FindFirstChild("Icon")
+                if icon and RANK_ICONS[Cfg.RankTier.val] then
+                    lockImage(icon, RANK_ICONS[Cfg.RankTier.val])
+                end
+            end
+        end
+    end
+
+    -- ★ 2) PlayerList (Tab - 내 슬롯 랭크 아이콘)
+    if Cfg.RankTier.on then
+        local pl = pg:FindFirstChild("PlayerList") or mf:FindFirstChild("PlayerList")
+        if pl then
+            for _, slot in ipairs(pl:GetDescendants()) do
+                if slot.Name == "PlayerListSlot" then
+                    -- 내 슬롯인지 확인
+                    local isMine = false
+                    local titleLbl = slot:FindFirstChild("Player")
+                        and slot.Player:FindFirstChild("Container")
+                        and slot.Player.Container:FindFirstChild("Title")
+                    if titleLbl and (titleLbl.Text == LocalPlayer.Name or titleLbl.Text == LocalPlayer.DisplayName) then
+                        isMine = true
+                    end
+                    if isMine then
+                        local ls = slot:FindFirstChild("Leaderstat")
+                        local rc = ls and ls:FindFirstChild("RankContainer")
+                        local ri = rc and rc:FindFirstChild("RankIcon")
+                        local ic = ri and ri:FindFirstChild("Icon")
+                        if ic and RANK_ICONS[Cfg.RankTier.val] then
+                            lockImage(ic, RANK_ICONS[Cfg.RankTier.val])
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- ★ 3) Equipment Level Bar (로비 무기 페이지)
+    if Cfg.Level.on then
+        local equipment = mf:FindFirstChild("Equipment")
+        if equipment then
+            local right = equipment:FindFirstChild("Right")
+            local list = right and right:FindFirstChild("List")
+            local container = list and list:FindFirstChild("Container")
+            local level = container and container:FindFirstChild("Level")
+            if level then
+                local lc = level:FindFirstChild("Container")
+                local bar = lc and lc:FindFirstChild("Bar")
+                if bar then
+                    local lv = bar:FindFirstChild("Level")
+                    if lv then lockText(lv, tostring(Cfg.Level.val)) end
+                end
+            end
+        end
+    end
+end
+
+-- ============================================================
+-- 통계 스푸핑 (기존 유지)
 -- ============================================================
 local function spoofStats()
     if not PlayerDataCtrl then return end
@@ -653,72 +720,31 @@ local function spoofStats()
 
     if Cfg.Level.on then safeSet("Level", Cfg.Level.val) end
     if Cfg.Winstreak.on then safeSet("StatisticDuelsWinStreak", Cfg.Winstreak.val) end
-
-    -- 승 / 패
     if Cfg.CasualWins.on then safeSet("StatisticDuelsWon", Cfg.CasualWins.val) end
     if Cfg.CasualLosses.on then safeSet("StatisticDuelsLost", Cfg.CasualLosses.val) end
+    if Cfg.CasualWinPercent.on then safeSet("StatisticDuelsWinPercent", Cfg.CasualWinPercent.val / 100) end
     if Cfg.RankedWins.on then safeSet("StatisticRankedDuelsWon", Cfg.RankedWins.val) end
     if Cfg.RankedLosses.on then safeSet("StatisticRankedDuelsLost", Cfg.RankedLosses.val) end
-
-    -- ★ 승률 자동 계산 (승/패 둘 다 ON일 때)
-    if Cfg.CasualWins.on and Cfg.CasualLosses.on then
-        local total = Cfg.CasualWins.val + Cfg.CasualLosses.val
-        if total > 0 then
-            safeSet("StatisticDuelsWinPercent", Cfg.CasualWins.val / total)
-        end
-    else
-        if Cfg.CasualWinPercent.on then safeSet("StatisticDuelsWinPercent", Cfg.CasualWinPercent.val / 100) end
-    end
-
-    if Cfg.RankedWins.on and Cfg.RankedLosses.on then
-        local total = Cfg.RankedWins.val + Cfg.RankedLosses.val
-        if total > 0 then
-            safeSet("StatisticRankedDuelsWinPercent", Cfg.RankedWins.val / total)
-        end
-    else
-        if Cfg.RankedWinPercent.on then safeSet("StatisticRankedDuelsWinPercent", Cfg.RankedWinPercent.val / 100) end
-    end
-
-    -- ★ ELO → 랭크 자동
-    if Cfg.RankedElo.on then
-        safeSet("RankedCurrentELO", Cfg.RankedElo.val)
-        safeSet("DisplayELO", Cfg.RankedElo.val)
-
-        if Cfg.AutoRankFromELO.on then
-            local autoTier = eloToTier(Cfg.RankedElo.val)
-            safeSet("RankTier", autoTier)
-            safeSet("DisplayRank", autoTier)
-        end
-    end
-
-    -- 수동 랭크 (Auto 꺼졌을 때만)
-    if Cfg.RankTier.on and not Cfg.AutoRankFromELO.on then
-        safeSet("RankTier", Cfg.RankTier.val)
-        safeSet("DisplayRank", Cfg.RankTier.val)
-    end
-
+    if Cfg.RankedWinPercent.on then safeSet("StatisticRankedDuelsWinPercent", Cfg.RankedWinPercent.val / 100) end
+    if Cfg.RankedElo.on then safeSet("RankedCurrentELO", Cfg.RankedElo.val) safeSet("DisplayELO", Cfg.RankedElo.val) end
     if Cfg.FavoriteMap.on then safeSet("StatisticFavoriteMap", Cfg.FavoriteMap.val) end
     if Cfg.Influencer.on then safeSet("IsInfluencer", true) end
     if Cfg.RobloxEmployee.on then safeSet("IsRobloxEmployee", true) end
     if Cfg.NosniyTeam.on then safeSet("GroupRank", 255) end
+    if Cfg.RankTier.on then
+        safeSet("RankTier", Cfg.RankTier.val)
+        safeSet("DisplayRank", Cfg.RankTier.val)
+    end
 
     pcall(function()
         if Cfg.Level.on then LocalPlayer:SetAttribute("Level", Cfg.Level.val) end
         if Cfg.Winstreak.on then LocalPlayer:SetAttribute("StatisticDuelsWinStreak", Cfg.Winstreak.val) end
         if Cfg.RankedElo.on then LocalPlayer:SetAttribute("DisplayELO", Cfg.RankedElo.val) end
         if Cfg.NametagStatus.on then LocalPlayer:SetAttribute("PlayerStatus", Cfg.NametagStatus.val) end
-
-        if Cfg.RankedElo.on and Cfg.AutoRankFromELO.on then
-            LocalPlayer:SetAttribute("RankTier", eloToTier(Cfg.RankedElo.val))
-        elseif Cfg.RankTier.on then
-            LocalPlayer:SetAttribute("RankTier", Cfg.RankTier.val)
-        end
+        if Cfg.RankTier.on then LocalPlayer:SetAttribute("RankTier", Cfg.RankTier.val) end
     end)
 end
 
--- ============================================================
--- 캐릭터 정리
--- ============================================================
 local function cleanCharacter()
     local char = LocalPlayer.Character
     if not char then return end
@@ -836,9 +862,6 @@ local function applyCharacterParts(userId)
     end
 end
 
--- ============================================================
--- 스냅샷
--- ============================================================
 local function takeSnapshot()
     local char = LocalPlayer.Character
     if not char then return nil end
@@ -848,29 +871,18 @@ local function takeSnapshot()
     local snap = {
         userId = LocalPlayer.UserId,
         appearanceId = LocalPlayer.CharacterAppearanceId,
-        parts = {},
-        accessories = {},
-        shirts = {},
-        pants = {},
-        graphics = {},
-        bodyColors = nil,
-        charMeshes = {},
-        face = nil,
-        humanoidDesc = nil,
+        parts = {}, accessories = {}, shirts = {}, pants = {},
+        graphics = {}, bodyColors = nil, charMeshes = {}, face = nil, humanoidDesc = nil,
     }
 
-    pcall(function()
-        snap.humanoidDesc = humanoid:GetAppliedDescription()
-    end)
+    pcall(function() snap.humanoidDesc = humanoid:GetAppliedDescription() end)
 
     for _, partName in ipairs(R15_PARTS) do
         local part = char:FindFirstChild(partName)
         if part and part:IsA("BasePart") then
             snap.parts[partName] = {
-                className = part.ClassName,
-                Color = part.Color,
-                Transparency = part.Transparency,
-                Size = part.Size,
+                className = part.ClassName, Color = part.Color,
+                Transparency = part.Transparency, Size = part.Size,
                 isMesh = part:IsA("MeshPart"),
                 MeshId = part:IsA("MeshPart") and part.MeshId or nil,
                 TextureID = part:IsA("MeshPart") and part.TextureID or nil,
@@ -881,11 +893,7 @@ local function takeSnapshot()
 
     for _, child in ipairs(char:GetChildren()) do
         if child:IsA("Accessory") or child:IsA("Hat") then
-            table.insert(snap.accessories, {
-                name = child.Name,
-                className = child.ClassName,
-                clone = child:Clone(),
-            })
+            table.insert(snap.accessories, { name = child.Name, className = child.ClassName, clone = child:Clone() })
         elseif child:IsA("Shirt") then
             table.insert(snap.shirts, { name = child.Name, tpl = child.ShirtTemplate })
         elseif child:IsA("Pants") then
@@ -1015,9 +1023,7 @@ local function applySnapshotOnce(snap)
         if part and part:IsA("BasePart") then
             pcall(function()
                 part.LocalTransparencyModifier = 0
-                if part.Transparency >= 1 then
-                    part.Transparency = 0
-                end
+                if part.Transparency >= 1 then part.Transparency = 0 end
             end)
         end
     end
@@ -1027,9 +1033,7 @@ local function applySnapshotOnce(snap)
             if h then
                 pcall(function()
                     h.LocalTransparencyModifier = 0
-                    if h.Transparency >= 1 then
-                        h.Transparency = 0
-                    end
+                    if h.Transparency >= 1 then h.Transparency = 0 end
                 end)
             end
         end
@@ -1038,9 +1042,6 @@ local function applySnapshotOnce(snap)
     return true
 end
 
--- ============================================================
--- 파츠 잠금
--- ============================================================
 local function lockPart(part, src)
     if not part or not src or not src.isMeshPart or not part:IsA("MeshPart") then return end
     if State.spoofLocks[part] then return end
@@ -1075,9 +1076,6 @@ local function lockAllParts()
     end
 end
 
--- ============================================================
--- POV 가시성
--- ============================================================
 local function applyPOVVisibility()
     if not (State.charEnabled and State.charUserId and State.charApplied) then return end
     local char = LocalPlayer.Character
@@ -1085,9 +1083,7 @@ local function applyPOVVisibility()
 
     local isFirstPerson = false
     if CameraCtrl and CameraCtrl.CameraState then
-        local ok, pov = pcall(function()
-            return CameraCtrl.CameraState:GetPublicState()
-        end)
+        local ok, pov = pcall(function() return CameraCtrl.CameraState:GetPublicState() end)
         if ok and pov ~= nil then
             local states = CameraCtrl.CameraState.States
             if states and states.ThirdPerson then
@@ -1125,9 +1121,6 @@ SpoofTrove:Add(RunService.Heartbeat:Connect(function()
     applyPOVVisibility()
 end))
 
--- ============================================================
--- applyAll
--- ============================================================
 local function applyAll(userId, data)
     if not isSpoofActive() then return end
 
@@ -1340,9 +1333,6 @@ local function applyAll(userId, data)
     end)
 end
 
--- ============================================================
--- 워처
--- ============================================================
 local function attachContainerWatcher(container)
     if not container then return end
     if State._profileWatchers[container] then return end
@@ -1454,9 +1444,6 @@ SpoofTrove:Add(task.spawn(function()
     end
 end))
 
--- ============================================================
--- 캐릭터 리셋 감시
--- ============================================================
 local function startCharResetWatcher(char)
     if not char then return end
     if State.resetWatchConn then
@@ -1525,7 +1512,7 @@ SpoofTrove:Add(RunService.Heartbeat:Connect(function(dt)
 end))
 
 -- ============================================================
--- UI
+-- UI 준비
 -- ============================================================
 local charTargetInput
 local playerDropRef
@@ -1649,7 +1636,6 @@ local function restoreCharSpoof()
     end)
 end
 
--- 주기적 UI 스푸핑
 local applyAcc = 0
 SpoofTrove:Add(RunService.Heartbeat:Connect(function(dt)
     if not isSpoofActive() then return end
@@ -1677,23 +1663,25 @@ SpoofTrove:Add(RunService.Heartbeat:Connect(function(dt)
     applyAll(State.charUserId, State.charApplied)
 end))
 
--- 주기적 통계
+-- ============================================================
+-- ★ 주기적 통계 스푸핑 (spoofProfileUI 호출 추가!)
+-- ============================================================
 local statsAcc = 0
 SpoofTrove:Add(RunService.Heartbeat:Connect(function(dt)
     statsAcc = statsAcc + dt
     if statsAcc < 1 then return end
     statsAcc = 0
 
-    if Cfg.Level.on or Cfg.Winstreak.on or Cfg.CasualWins.on or Cfg.CasualLosses.on
-       or Cfg.RankedWins.on or Cfg.RankedLosses.on
+    if Cfg.Level.on or Cfg.Winstreak.on or Cfg.CasualWins.on or Cfg.RankedWins.on
        or Cfg.CasualWinPercent.on or Cfg.RankedWinPercent.on or Cfg.RankedElo.on
        or Cfg.FavoriteMap.on or Cfg.NametagStatus.on or Cfg.Influencer.on
-       or Cfg.RobloxEmployee.on or Cfg.NosniyTeam.on or Cfg.RankTier.on then
+       or Cfg.RobloxEmployee.on or Cfg.NosniyTeam.on or Cfg.RankTier.on
+       or Cfg.Name.on or Cfg.DisplayName.on or Cfg.CasualLosses.on or Cfg.RankedLosses.on then
         spoofStats()
+        spoofProfileUI()  -- ★ 이거 추가!
     end
 end))
 
--- 주기적 이름
 local identityAcc = 0
 SpoofTrove:Add(RunService.Heartbeat:Connect(function(dt)
     identityAcc = identityAcc + dt
@@ -1708,7 +1696,7 @@ SpoofTrove:Add(RunService.Heartbeat:Connect(function(dt)
 end))
 
 -- ============================================================
--- UI 그룹박스
+-- UI 구성
 -- ============================================================
 local CharBox = Spoofer:AddGroupbox({ Name = "Character Spoofer", Side = 2 })
 CharBox:AddToggle("CharSpoofEnable", {
@@ -1763,12 +1751,10 @@ playerDropRef = CharBox:AddDropdown("CharTargetDrop", {
     Multi = false,
     Callback = function(v)
         if not v or v == "None" then return end
-
         local id = parseUserId(v)
         if id then
             State.charUserId = id
             State._lastInputValue = v
-
             if charTargetInput then
                 pcall(function()
                     if charTargetInput.Set then
@@ -1778,7 +1764,6 @@ playerDropRef = CharBox:AddDropdown("CharTargetDrop", {
                     end
                 end)
             end
-
             if State.charEnabled then applyCharSpoof() end
         end
     end,
@@ -1795,117 +1780,45 @@ CharBox:AddButton("RefreshPlayerList", {
     end,
 })
 
--- ============================================================
--- Identity
--- ============================================================
 local IDBox = Spoofer:AddGroupbox({ Name = "Identity", Side = 2 })
 IDBox:AddToggle("NameToggle", { Text = "Name", Default = false, Callback = function(v) Cfg.Name.on = v end })
 IDBox:AddInput("NameInput", { Text = "Name", Default = "Minho", Finished = true, Callback = function(v) Cfg.Name.val = v end })
 IDBox:AddToggle("DNToggle", { Text = "Display Name", Default = false, Callback = function(v) Cfg.DisplayName.on = v end })
 IDBox:AddInput("DNInput", { Text = "Display Name", Default = "Minho", Finished = true, Callback = function(v) Cfg.DisplayName.val = v end })
 
--- ============================================================
--- Profile
--- ============================================================
 local ProfBox = Spoofer:AddGroupbox({ Name = "Profile", Side = 2 })
 ProfBox:AddToggle("FMToggle", { Text = "Favorite Map", Default = false, Callback = function(v) Cfg.FavoriteMap.on = v spoofStats() end })
 ProfBox:AddDropdown("FMDrop", { Text = "Map", Values = MAPS, Default = "Arena", Multi = false, Callback = function(v) Cfg.FavoriteMap.val = v spoofStats() end })
 ProfBox:AddToggle("NTToggle", { Text = "Nametag Status", Default = false, Callback = function(v) Cfg.NametagStatus.on = v spoofStats() end })
 ProfBox:AddDropdown("NTDrop", { Text = "Status", Values = TAGS, Default = "Prime", Multi = false, Callback = function(v) Cfg.NametagStatus.val = v spoofStats() end })
 
--- ============================================================
--- ★ Rank (자동 ELO → 랭크)
--- ============================================================
 local RankBox = Spoofer:AddGroupbox({ Name = "Rank", Side = 2 })
+RankBox:AddToggle("RankToggle", { Text = "Rank Tier", Default = false, Callback = function(v) Cfg.RankTier.on = v spoofStats() end })
+RankBox:AddDropdown("RankDrop", { Text = "Tier", Values = TIERS, Default = "Archnemesis", Multi = false, Callback = function(v) Cfg.RankTier.val = v spoofStats() end })
+RankBox:AddToggle("ELOToggle", { Text = "Ranked ELO", Default = false, Callback = function(v) Cfg.RankedElo.on = v spoofStats() end })
+RankBox:AddInput("ELOInput", { Text = "Ranked ELO", Default = "3600", Numeric = true, Finished = true, Callback = function(v) local n=tonumber(v) if n then Cfg.RankedElo.val = n spoofStats() end end })
 
-RankBox:AddToggle("AutoRankToggle", {
-    Text = "Auto Rank from ELO",
-    Default = true,
-    Callback = function(v)
-        Cfg.AutoRankFromELO.on = v
-        spoofStats()
-    end
-})
-
-RankBox:AddToggle("ELOToggle", {
-    Text = "Ranked ELO",
-    Default = false,
-    Callback = function(v)
-        Cfg.RankedElo.on = v
-        spoofStats()
-    end
-})
-
-RankBox:AddInput("ELOInput", {
-    Text = "Ranked ELO (3600 = Nemesis)",
-    Default = "3600",
-    Numeric = true,
-    Finished = true,
-    Callback = function(v)
-        local n = tonumber(v)
-        if n then
-            Cfg.RankedElo.val = n
-            local tier = eloToTier(n)
-            Library:Notify("ELO " .. n .. " → " .. tier, 3)
-            spoofStats()
-        end
-    end
-})
-
-RankBox:AddToggle("RankToggle", {
-    Text = "Manual Rank Tier",
-    Default = false,
-    Callback = function(v) Cfg.RankTier.on = v spoofStats() end
-})
-
-RankBox:AddDropdown("RankDrop", {
-    Text = "Tier",
-    Values = TIERS,
-    Default = "Archnemesis",
-    Multi = false,
-    Callback = function(v) Cfg.RankTier.val = v spoofStats() end
-})
-
--- ============================================================
--- ★ Stats (승/패 추가)
--- ============================================================
 local StatBox = Spoofer:AddGroupbox({ Name = "Stats", Side = 1 })
-
 StatBox:AddToggle("LevelToggle", { Text = "Level", Default = false, Callback = function(v) Cfg.Level.on = v spoofStats() end })
 StatBox:AddInput("LevelInput", { Text = "Level", Default = "999", Numeric = true, Finished = true, Callback = function(v) local n=tonumber(v) if n then Cfg.Level.val = n spoofStats() end end })
-
 StatBox:AddToggle("WSToggle", { Text = "Winstreak", Default = false, Callback = function(v) Cfg.Winstreak.on = v spoofStats() end })
 StatBox:AddInput("WSInput", { Text = "Winstreak", Default = "999", Numeric = true, Finished = true, Callback = function(v) local n=tonumber(v) if n then Cfg.Winstreak.val = n spoofStats() end end })
-
--- 승 / 패
 StatBox:AddToggle("CWinsToggle", { Text = "Casual Wins", Default = false, Callback = function(v) Cfg.CasualWins.on = v spoofStats() end })
 StatBox:AddInput("CWinsInput", { Text = "Casual Wins", Default = "9999", Numeric = true, Finished = true, Callback = function(v) local n=tonumber(v) if n then Cfg.CasualWins.val = n spoofStats() end end })
-StatBox:AddToggle("CLossesToggle", { Text = "Casual Losses", Default = false, Callback = function(v) Cfg.CasualLosses.on = v spoofStats() end })
-StatBox:AddInput("CLossesInput", { Text = "Casual Losses", Default = "0", Numeric = true, Finished = true, Callback = function(v) local n=tonumber(v) if n then Cfg.CasualLosses.val = n spoofStats() end end })
-
--- 승률 (수동)
-StatBox:AddToggle("CWPToggle", { Text = "Casual Win % (Manual)", Default = false, Callback = function(v) Cfg.CasualWinPercent.on = v spoofStats() end })
+StatBox:AddToggle("CWPToggle", { Text = "Casual Win %", Default = false, Callback = function(v) Cfg.CasualWinPercent.on = v spoofStats() end })
 StatBox:AddSlider("CWPInput", { Text = "Casual Win %", Default = 100, Min = 0, Max = 100, Rounding = 1, Suffix = "%", Callback = function(v) Cfg.CasualWinPercent.val = v spoofStats() end })
-
--- 랭크드 승 / 패
 StatBox:AddToggle("RWinsToggle", { Text = "Ranked Wins", Default = false, Callback = function(v) Cfg.RankedWins.on = v spoofStats() end })
 StatBox:AddInput("RWinsInput", { Text = "Ranked Wins", Default = "9999", Numeric = true, Finished = true, Callback = function(v) local n=tonumber(v) if n then Cfg.RankedWins.val = n spoofStats() end end })
-StatBox:AddToggle("RLossesToggle", { Text = "Ranked Losses", Default = false, Callback = function(v) Cfg.RankedLosses.on = v spoofStats() end })
-StatBox:AddInput("RLossesInput", { Text = "Ranked Losses", Default = "0", Numeric = true, Finished = true, Callback = function(v) local n=tonumber(v) if n then Cfg.RankedLosses.val = n spoofStats() end end })
-
-StatBox:AddToggle("RWPToggle", { Text = "Ranked Win % (Manual)", Default = false, Callback = function(v) Cfg.RankedWinPercent.on = v spoofStats() end })
+StatBox:AddToggle("RWPToggle", { Text = "Ranked Win %", Default = false, Callback = function(v) Cfg.RankedWinPercent.on = v spoofStats() end })
 StatBox:AddSlider("RWPInput", { Text = "Ranked Win %", Default = 100, Min = 0, Max = 100, Rounding = 1, Suffix = "%", Callback = function(v) Cfg.RankedWinPercent.val = v spoofStats() end })
 
--- ============================================================
--- Badges
--- ============================================================
 local BadgeBox = Spoofer:AddGroupbox({ Name = "Badges", Side = 1 })
 BadgeBox:AddToggle("InfToggle", { Text = "Influencer", Default = false, Callback = function(v) Cfg.Influencer.on = v spoofStats() end })
 BadgeBox:AddToggle("RobToggle", { Text = "Roblox Employee", Default = false, Callback = function(v) Cfg.RobloxEmployee.on = v spoofStats() end })
 BadgeBox:AddToggle("NosToggle", { Text = "Nosniy Team", Default = false, Callback = function(v) Cfg.NosniyTeam.on = v spoofStats() end })
 
 -- ============================================================
--- 언로드
+-- 언로드 시 정리
 -- ============================================================
 if Library and Library.OnUnload then
     Library:OnUnload(function()
